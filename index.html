@@ -3,42 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mobile Object Detection</title>
+<title>Smart Object Detection</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 
 <style>
-*{ margin:0; padding:0; box-sizing:border-box; }
-body{ overflow:hidden; background:black; }
-video{
-  position:fixed;
-  top:0; left:0;
-  width:100vw; height:100vh;
-  object-fit:cover;
-  transform:scaleX(-1);
-}
-canvas{
-  position:fixed;
-  top:0; left:0;
-  width:100vw; height:100vh;
-  pointer-events:none;
-}
-#switchCamera{
-  position:absolute;
-  top:20px; right:20px;
-  padding:10px 15px;
-  background:white;
-  border-radius:8px;
-  font-weight:bold;
-  cursor:pointer;
-  z-index:100;
-}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{overflow:hidden;background:black;}
+video{position:fixed;top:0;left:0;width:100vw;height:100vh;object-fit:cover;transform:scaleX(-1);}
+canvas{position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;}
+#switchCamera{position:absolute;top:20px;right:20px;padding:10px 15px;background:white;border-radius:8px;font-weight:bold;cursor:pointer;z-index:100;}
 </style>
 </head>
 
 <body>
-
 <video id="video" autoplay playsinline muted></video>
 <canvas id="canvas"></canvas>
 <div id="switchCamera">Switch Camera</div>
@@ -47,97 +26,97 @@ canvas{
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
-
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-// 12 common objects
-const DETECT_CLASSES = [
-  "person","bottle","cup","chair","cell phone","laptop",
-  "book","bowl","apple","banana","keyboard","mouse"
-];
+// 12 target objects
+const DETECT_CLASSES = ["person","bottle","cup","chair","cell phone","laptop","book","bowl","apple","banana","keyboard","mouse"];
 
-// assign a color to each object
-const COLORS = {
-  "person":"rgba(255,0,0,0.3)",
-  "bottle":"rgba(0,255,0,0.3)",
-  "cup":"rgba(0,0,255,0.3)",
-  "chair":"rgba(255,255,0,0.3)",
-  "cell phone":"rgba(255,0,255,0.3)",
-  "laptop":"rgba(0,255,255,0.3)",
-  "book":"rgba(255,128,0,0.3)",
-  "bowl":"rgba(128,0,255,0.3)",
-  "apple":"rgba(0,128,255,0.3)",
-  "banana":"rgba(128,255,0,0.3)",
-  "keyboard":"rgba(255,0,128,0.3)",
-  "mouse":"rgba(0,255,128,0.3)"
+// map approximate class names (fuzzy)
+const APPROX_MAP = {
+  "cell phone":["cell phone","phone","mobile phone"],
+  "apple":["apple","orange","fruit"],
+  "banana":["banana","fruit"],
+  "keyboard":["keyboard","computer keyboard"],
+  "mouse":["mouse","computer mouse"],
+  "bottle":["bottle","water bottle","wine bottle"],
+  "cup":["cup","mug"],
+  "chair":["chair","stool","bench"],
+  "laptop":["laptop","notebook"],
+  "book":["book","notepad"],
+  "bowl":["bowl","plate"]
 };
 
+// assign colors
+const COLORS = {};
+DETECT_CLASSES.forEach((c,i)=>{
+  const r = (i*50)%255, g = (255-(i*20))%255, b = (i*70)%255;
+  COLORS[c] = `rgba(${r},${g},${b},0.3)`;
+});
+
 let model;
-let currentFacingMode = "environment"; // default camera
+let currentFacingMode = "environment";
 let lastFrame = 0;
 
 // start camera
 async function startCamera(facingMode){
-  try{
-    if(video.srcObject){
-      video.srcObject.getTracks().forEach(t=>t.stop());
-    }
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video:{ facingMode }, audio:false
-    });
-    video.srcObject = stream;
+  if(video.srcObject) video.srcObject.getTracks().forEach(t=>t.stop());
+  const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode}, audio:false});
+  video.srcObject = stream;
+  await new Promise(r=>video.onloadedmetadata=()=>{video.play(); r();});
+}
 
-    await new Promise(resolve=>{
-      video.onloadedmetadata = () => { video.play(); resolve(); };
-    });
-  }catch(err){
-    alert("Cannot access camera: " + err);
+// check if prediction matches target list
+function matchesTarget(predClass){
+  for(const target of DETECT_CLASSES){
+    const approx = APPROX_MAP[target] || [];
+    if(target===predClass || approx.includes(predClass)) return target;
   }
+  return null;
 }
 
 // load model
 async function init(){
   await startCamera(currentFacingMode);
-  model = await cocoSsd.load();
+  model = await cocoSsd.load({base: 'lite_mobilenet_v2'}); // more precise
   detectFrame();
 }
 
-// 8-10 FPS detection
+// 8-10 FPS
 async function detectFrame(){
   requestAnimationFrame(detectFrame);
   const now = performance.now();
-  if(now - lastFrame < 100) return; // ~10 FPS
+  if(now - lastFrame < 100) return;
   lastFrame = now;
-
-  if(!model || video.readyState < 4) return;
+  if(!model || video.readyState<4) return;
 
   const predictions = await model.detect(video);
-
   ctx.clearRect(0,0,canvas.width,canvas.height);
   ctx.drawImage(video,0,0,canvas.width,canvas.height);
 
   predictions.forEach(pred=>{
-    if(DETECT_CLASSES.includes(pred.class)){
-      const [x,y,w,h] = pred.bbox;
-      const color = COLORS[pred.class] || "rgba(255,255,255,0.3)";
-      ctx.fillStyle = color;
-      ctx.fillRect(x,y,w,h);
+    if(pred.score < 0.3) return; // skip low confidence
+    const target = matchesTarget(pred.class);
+    if(!target) return;
 
-      ctx.strokeStyle = color.replace("0.3","1");
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x,y,w,h);
+    const [x,y,w,h] = pred.bbox;
+    const color = COLORS[target];
+    ctx.fillStyle = color;
+    ctx.fillRect(x,y,w,h);
 
-      ctx.fillStyle = color.replace("0.3","1");
-      ctx.font = "18px Arial";
-      ctx.fillText(pred.class, x, y-5);
-    }
+    ctx.strokeStyle = color.replace("0.3","1");
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x,y,w,h);
+
+    ctx.fillStyle = color.replace("0.3","1");
+    ctx.font = "18px Arial";
+    ctx.fillText(target, x, y-5);
   });
 }
 
-// Switch camera button
+// switch camera
 document.getElementById("switchCamera").addEventListener("click", ()=>{
-  currentFacingMode = (currentFacingMode==="user") ? "environment" : "user";
+  currentFacingMode = (currentFacingMode==="user")?"environment":"user";
   startCamera(currentFacingMode);
 });
 
