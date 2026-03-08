@@ -1,57 +1,33 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<title>Body Detection</title>
+<title>Camera Tracking</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
 
 <style>
+
 body{
 margin:0;
 overflow:hidden;
 background:black;
 }
 
-video{
-position:fixed;
-top:0;
-left:0;
-width:100vw;
-height:100vh;
-object-fit:cover;
-transform:scaleX(-1);
-}
-
 canvas{
-position:fixed;
+position:absolute;
 top:0;
 left:0;
-width:100vw;
-height:100vh;
-pointer-events:none;
 }
 
-#switch{
-position:absolute;
-top:20px;
-right:20px;
-background:white;
-padding:10px 14px;
-border-radius:8px;
-font-weight:bold;
-}
 </style>
 </head>
-
 <body>
 
-<video id="video" autoplay playsinline muted></video>
+<video id="video" autoplay playsinline style="display:none"></video>
 <canvas id="canvas"></canvas>
-<button id="switch">Switch Camera</button>
 
 <script>
 
@@ -60,146 +36,124 @@ const canvas = document.getElementById("canvas")
 const ctx = canvas.getContext("2d")
 
 let detector
-let facingMode = "environment"
 
-// Detect mobile
-const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent)
-
-// FPS control
+// Detect device
+const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
 const FPS = isMobile ? 9 : 12
 const interval = 1000 / FPS
 
-let lastTime = 0
+function resize(){
+canvas.width = window.innerWidth
+canvas.height = window.innerHeight
+}
+resize()
+window.addEventListener("resize", resize)
 
 async function startCamera(){
 
-if(video.srcObject){
-video.srcObject.getTracks().forEach(t=>t.stop())
-}
-
 const stream = await navigator.mediaDevices.getUserMedia({
-video:{facingMode:facingMode},
+video:{
+facingMode:"user",
+width:{ideal:1280},
+height:{ideal:720}
+},
 audio:false
 })
 
 video.srcObject = stream
 
 return new Promise(resolve=>{
-video.onloadedmetadata = ()=>{
-video.play()
-resolve()
-}
+video.onloadedmetadata = () => resolve()
 })
 
 }
 
-async function setup(){
+async function loadModel(){
 
-await startCamera()
+const model = poseDetection.SupportedModels.MoveNet
 
-canvas.width = video.videoWidth
-canvas.height = video.videoHeight
-
-detector = await poseDetection.createDetector(
-poseDetection.SupportedModels.MoveNet,
-{
-runtime:"tfjs",
-modelType:"lightning"
+detector = await poseDetection.createDetector(model,{
+modelType:"Lightning"
 })
 
-loop()
+}
+
+function drawBox(x,y,color){
+
+const size = 60
+
+ctx.strokeStyle = color
+ctx.lineWidth = 3
+ctx.strokeRect(x-size/2,y-size/2,size,size)
 
 }
 
-function getBox(points){
+let lastFrame = 0
 
-let xs=[]
-let ys=[]
+async function detect(time){
 
-points.forEach(p=>{
-if(p && p.score>0.4){
-xs.push(p.x)
-ys.push(p.y)
-}
-})
-
-if(xs.length===0) return null
-
-let minX=Math.min(...xs)
-let maxX=Math.max(...xs)
-let minY=Math.min(...ys)
-let maxY=Math.max(...ys)
-
-let pad=25
-
-return [
-minX-pad,
-minY-pad,
-(maxX-minX)+pad*2,
-(maxY-minY)+pad*2
-]
-
+if(time-lastFrame < interval){
+requestAnimationFrame(detect)
+return
 }
 
-function draw(box,color,label){
+lastFrame = time
 
-if(!box) return
-
-let [x,y,w,h]=box
-
-ctx.fillStyle=color
-ctx.fillRect(x,y,w,h)
-
-ctx.strokeStyle=color.replace("0.35","1")
-ctx.lineWidth=2
-ctx.strokeRect(x,y,w,h)
-
-ctx.fillStyle="white"
-ctx.font="16px Arial"
-ctx.fillText(label,x,y-6)
-
-}
-
-async function loop(){
-
-requestAnimationFrame(loop)
-
-let now = performance.now()
-if(now-lastTime < interval) return
-lastTime = now
-
-ctx.clearRect(0,0,canvas.width,canvas.height)
-ctx.drawImage(video,0,0)
-
-if(!detector) return
+ctx.drawImage(video,0,0,canvas.width,canvas.height)
 
 const poses = await detector.estimatePoses(video)
 
-poses.forEach(p=>{
+if(poses.length>0){
 
-const k = p.keypoints
+const kp = poses[0].keypoints
 
-const head = [k[0],k[1],k[2],k[3],k[4]]
-const body = [k[5],k[6],k[11],k[12]]
-const hands = [k[9],k[10]]
+const nose = kp.find(p=>p.name==="nose")
+const leftWrist = kp.find(p=>p.name==="left_wrist")
+const rightWrist = kp.find(p=>p.name==="right_wrist")
 
-draw(getBox(head),"rgba(255,200,200,0.35)","Head")
-draw(getBox(body),"rgba(200,220,255,0.35)","Body")
-draw(getBox(hands),"rgba(200,255,200,0.35)","Hands")
+if(nose && nose.score > 0.4){
 
-})
+const x = nose.x * canvas.width / video.videoWidth
+const y = nose.y * canvas.height / video.videoHeight
+
+drawBox(x,y,"#00ffff") // head
 
 }
 
-document.getElementById("switch").onclick = async ()=>{
+if(leftWrist && leftWrist.score > 0.4){
 
-facingMode = facingMode==="environment" ? "user" : "environment"
+const x = leftWrist.x * canvas.width / video.videoWidth
+const y = leftWrist.y * canvas.height / video.videoHeight
+
+drawBox(x,y,"#00ff00") // left hand
+
+}
+
+if(rightWrist && rightWrist.score > 0.4){
+
+const x = rightWrist.x * canvas.width / video.videoWidth
+const y = rightWrist.y * canvas.height / video.videoHeight
+
+drawBox(x,y,"#ff00ff") // right hand
+
+}
+
+}
+
+requestAnimationFrame(detect)
+
+}
+
+async function init(){
 
 await startCamera()
+await loadModel()
+
+requestAnimationFrame(detect)
 
 }
 
-setup()
+init()
 
 </script>
 
