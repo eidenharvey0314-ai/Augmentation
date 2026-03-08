@@ -3,22 +3,55 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Face, Hand & Body Detection - 10m + Camera Switch</title>
+<title>Face, Hand & Body Detection</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
 <style>
-body{margin:0;overflow:hidden;background:black;}
-video, canvas{position:absolute;width:100%;height:100%;object-fit:cover;}
-#status{position:absolute;top:10px;left:10px;color:white;background:rgba(0,0,0,0.5);padding:6px 10px;font-family:sans-serif;border-radius:6px;}
-#switchBtn{position:absolute;top:10px;right:10px;padding:6px 10px;font-size:16px;border:none;border-radius:6px;background:rgba(255,255,255,0.7);cursor:pointer;}
+body{
+margin:0;
+overflow:hidden;
+background:black;
+}
+video, canvas{
+position:absolute;
+width:100%;
+height:100%;
+object-fit:cover;
+}
+#status{
+position:absolute;
+top:10px;
+left:10px;
+color:white;
+background:rgba(0,0,0,0.5);
+padding:6px 10px;
+font-family:sans-serif;
+border-radius:6px;
+z-index:10;
+}
+#switchBtn{
+position:absolute;
+top:50px;
+left:10px;
+z-index:10;
+padding:6px 10px;
+border:none;
+border-radius:6px;
+background:rgba(255,255,255,0.8);
+color:black;
+font-weight:bold;
+cursor:pointer;
+}
 </style>
 </head>
 
 <body>
-<div id="status">Loading...</div>
+
+<div id="status">Starting camera...</div>
 <button id="switchBtn">Switch Camera</button>
+
 <video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
 
@@ -29,84 +62,90 @@ const ctx = canvas.getContext("2d");
 const statusText = document.getElementById("status");
 const switchBtn = document.getElementById("switchBtn");
 
+let resultsData = null;
+let cameraFacingMode = "user"; // front by default
+let cameraMP = null;
+
+function isMobile(){
+return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+const FPS = isMobile() ? 10 : 12;
+
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
-
-let resultsData = null;
-let devices = [];
-let currentDeviceIndex = 0;
-
-function isMobile(){ return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);}
-const FPS = isMobile()?10:12;
-
-// Get available cameras
-async function getCameras(){
-devices = (await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput");
-}
-
-// Start camera with deviceId
-async function startCamera(deviceId){
-if(window.cameraMP) window.cameraMP.stop();
-video.srcObject = null;
-
-const stream = await navigator.mediaDevices.getUserMedia({
-video:{
-deviceId: deviceId? {exact: deviceId}: undefined,
-width:{ideal:1920},
-height:{ideal:1080},
-facingMode: "user"
-}
-});
-video.srcObject = stream;
-statusText.innerText = "Camera running";
-}
-
-// Switch camera
-switchBtn.onclick = async ()=>{
-if(devices.length<=1) return;
-currentDeviceIndex = (currentDeviceIndex+1)%devices.length;
-await startCamera(devices[currentDeviceIndex].deviceId);
-};
-
-await getCameras();
-await startCamera(devices[0]?.deviceId);
 
 // Holistic model
 const holistic = new Holistic({
 locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`
 });
-holistic.setOptions({modelComplexity:1,smoothLandmarks:true,enableSegmentation:false,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
-holistic.onResults(results=>{ resultsData = results; });
 
-// Camera utils
-window.cameraMP = new Camera(video,{onFrame: async()=>{await holistic.send({image:video});},width:1920,height:1080});
-cameraMP.start();
+holistic.setOptions({
+modelComplexity:1,
+smoothLandmarks:true,
+enableSegmentation:false,
+minDetectionConfidence:0.5,
+minTrackingConfidence:0.5
+});
 
-// Draw boxes (Face, Hands, Body)
+holistic.onResults((results)=>{
+resultsData = results;
+});
+
+// Start camera
+async function startCamera(){
+if(cameraMP){
+cameraMP.stop();
+}
+
+cameraMP = new Camera(video, {
+onFrame: async () => {
+await holistic.send({image: video});
+},
+width:1280,
+height:720,
+facingMode: cameraFacingMode
+});
+
+cameraMP.start().then(()=>{
+statusText.innerText="Camera running ("+cameraFacingMode+")";
+});
+}
+
+startCamera();
+
+// Switch camera button
+switchBtn.addEventListener("click",()=>{
+cameraFacingMode = (cameraFacingMode === "user") ? "environment" : "user";
+startCamera();
+});
+
+// Draw function
 function drawBoxes(){
 ctx.clearRect(0,0,canvas.width,canvas.height);
 ctx.drawImage(video,0,0,canvas.width,canvas.height);
+
 if(!resultsData) return;
 
-// FACE
+// FACE box
 if(resultsData.faceLandmarks){
-let xVals = resultsData.faceLandmarks.map(l=>l.x);
-let yVals = resultsData.faceLandmarks.map(l=>l.y);
+let xVals = resultsData.faceLandmarks.map(l => l.x);
+let yVals = resultsData.faceLandmarks.map(l => l.y);
 let minX=Math.min(...xVals)*canvas.width;
 let maxX=Math.max(...xVals)*canvas.width;
 let minY=Math.min(...yVals)*canvas.height;
 let maxY=Math.max(...yVals)*canvas.height;
 ctx.fillStyle="rgba(0,255,0,0.25)";
-ctx.strokeStyle="lime"; ctx.lineWidth=2;
+ctx.strokeStyle="lime";
+ctx.lineWidth=2;
 ctx.fillRect(minX,minY,maxX-minX,maxY-minY);
 ctx.strokeRect(minX,minY,maxX-minX,maxY-minY);
 }
 
-// HANDS
+// HANDS box
 ["leftHandLandmarks","rightHandLandmarks"].forEach(hand=>{
 if(resultsData[hand]){
-let xVals=resultsData[hand].map(l=>l.x);
-let yVals=resultsData[hand].map(l=>l.y);
+let xVals = resultsData[hand].map(l=>l.x);
+let yVals = resultsData[hand].map(l=>l.y);
 let minX=Math.min(...xVals)*canvas.width;
 let maxX=Math.max(...xVals)*canvas.width;
 let minY=Math.min(...yVals)*canvas.height;
@@ -118,10 +157,10 @@ ctx.strokeRect(minX,minY,maxX-minX,maxY-minY);
 }
 });
 
-// BODY
+// BODY box
 if(resultsData.poseLandmarks){
-let xVals=resultsData.poseLandmarks.map(l=>l.x);
-let yVals=resultsData.poseLandmarks.map(l=>l.y);
+let xVals = resultsData.poseLandmarks.map(l=>l.x);
+let yVals = resultsData.poseLandmarks.map(l=>l.y);
 let minX=Math.min(...xVals)*canvas.width;
 let maxX=Math.max(...xVals)*canvas.width;
 let minY=Math.min(...yVals)*canvas.height;
@@ -133,9 +172,16 @@ ctx.strokeRect(minX,minY,maxX-minX,maxY-minY);
 }
 }
 
-// Loop with FPS limit
-function loop(){ drawBoxes(); setTimeout(loop,1000/FPS); }
-video.onloadeddata=()=>{ loop(); };
+// Loop
+function loop(){
+drawBoxes();
+setTimeout(loop,1000/FPS);
+}
+
+video.onloadeddata=()=>{
+loop();
+};
 </script>
+
 </body>
 </html>
