@@ -51,20 +51,32 @@ window.addEventListener("resize", resize)
 
 async function startCamera(){
 
+try{
+
 const stream = await navigator.mediaDevices.getUserMedia({
-video:{
-facingMode:"user",
-width:{ideal:1280},
-height:{ideal:720}
-},
+video:true,
 audio:false
 })
 
 video.srcObject = stream
 
-return new Promise(resolve=>{
-video.onloadedmetadata = () => resolve()
-})
+}catch(error){
+
+if(error.name === "NotReadableError"){
+alert("Camera is already in use by another application.")
+}
+
+else if(error.name === "NotAllowedError"){
+alert("Camera permission denied.")
+}
+
+else{
+alert("Camera error: " + error.message)
+}
+
+console.error(error)
+
+}
 
 }
 
@@ -159,3 +171,4 @@ init()
 
 </body>
 </html>
+
