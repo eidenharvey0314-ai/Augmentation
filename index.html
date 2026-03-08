@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Head & Hand Tracking Camera</title>
+<title>Updated Head & Hand Tracking Camera</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
@@ -32,11 +32,9 @@ const canvas = document.getElementById("overlay");
 const ctx = canvas.getContext("2d");
 const errorMsg = document.getElementById("errorMsg");
 
-// FPS control
 const FPS = 12;
 const interval = 1000 / FPS;
 
-// Setup camera with fallback
 async function setupCamera() {
   const constraintsList = [
     { video: { facingMode: "user", width: 640, height: 480 } },
@@ -52,7 +50,6 @@ async function setupCamera() {
   throw new Error("No available camera. Close other apps, allow permissions, and reload.");
 }
 
-// Main tracking function
 async function startTracking() {
   try { await setupCamera(); }
   catch (err) { console.error(err); errorMsg.innerText = err.message; errorMsg.style.display = "block"; return; }
@@ -60,12 +57,11 @@ async function startTracking() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 
-  // Load models
   const faceModel = await blazeface.load();
-  const handModel = await handPoseDetection.createDetector(handPoseDetection.SupportedModels.MediaPipeHands, {
-    runtime: 'tfjs',
-    maxHands: 2
-  });
+  const handModel = await handPoseDetection.createDetector(
+    handPoseDetection.SupportedModels.MediaPipeHands,
+    { runtime: 'tfjs', maxHands: 2 }
+  );
 
   let lastTime = performance.now();
 
@@ -77,26 +73,34 @@ async function startTracking() {
       lastTime = now - (delta % interval);
       ctx.clearRect(0,0,canvas.width,canvas.height);
 
-      // --- Face Detection ---
-      const faces = await faceModel.estimateFaces(video, false);
+      // Run both detections concurrently
+      const [faces, hands] = await Promise.all([
+        faceModel.estimateFaces(video, false),
+        handModel.estimateHands(video, { flipHorizontal: true })
+      ]);
+
+      // Draw faces
       faces.forEach(prediction => {
         const [x1, y1] = prediction.topLeft;
         const [x2, y2] = prediction.bottomRight;
+        ctx.fillStyle = "rgba(0,255,0,0.3)"; // semi-transparent green
+        ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
         ctx.strokeStyle = "lime";
-        ctx.lineWidth = 4;
+        ctx.lineWidth = 2;
         ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
       });
 
-      // --- Hand Detection ---
-      const hands = await handModel.estimateHands(video, { flipHorizontal: true });
+      // Draw hands
       hands.forEach(hand => {
         const bbox = hand.boundingBox;
         const x = bbox.topLeft[0];
         const y = bbox.topLeft[1];
         const width = bbox.bottomRight[0] - bbox.topLeft[0];
         const height = bbox.bottomRight[1] - bbox.topLeft[1];
+        ctx.fillStyle = "rgba(0,255,255,0.3)"; // semi-transparent cyan
+        ctx.fillRect(x, y, width, height);
         ctx.strokeStyle = "aqua";
-        ctx.lineWidth = 4;
+        ctx.lineWidth = 2;
         ctx.strokeRect(x, y, width, height);
       });
     }
@@ -107,7 +111,6 @@ async function startTracking() {
   detectLoop();
 }
 
-// Resize canvas on window change
 window.addEventListener('resize', () => {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
