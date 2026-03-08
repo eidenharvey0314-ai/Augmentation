@@ -3,39 +3,55 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Updated AI Face Tracking Camera</title>
+<title>AI Face Tracking Camera</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
 
 <style>
-*{
-  margin:0;
-  padding:0;
-  box-sizing:border-box;
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-body{
-  overflow:hidden;
-  background:black;
+body {
+  overflow: hidden;
+  background: black;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  color: white;
+  font-family: sans-serif;
 }
 
-video, canvas{
-  position:fixed;
-  top:0;
-  left:0;
-  width:100vw;
-  height:100vh;
-  object-fit:cover;
+video, canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
 }
 
-canvas{
-  pointer-events:none;
+canvas {
+  pointer-events: none;
+}
+
+#errorMsg {
+  position: absolute;
+  z-index: 10;
+  background: rgba(0,0,0,0.7);
+  padding: 1em;
+  border-radius: 8px;
+  text-align: center;
 }
 </style>
 </head>
-
 <body>
+
+<div id="errorMsg" style="display:none;"></div>
 <video id="video" autoplay playsinline></video>
 <canvas id="overlay"></canvas>
 
@@ -43,30 +59,44 @@ canvas{
 const video = document.getElementById("video");
 const canvas = document.getElementById("overlay");
 const ctx = canvas.getContext("2d");
+const errorMsg = document.getElementById("errorMsg");
 
-// Limit FPS
+// FPS control
 const FPS = 12;
 const interval = 1000 / FPS;
 
-async function setupCamera(){
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user" }
-    });
-    video.srcObject = stream;
+// Safe camera setup with fallback and error handling
+async function setupCamera() {
+  const constraintsList = [
+    { video: { facingMode: "user", width: 640, height: 480 } },  // front camera
+    { video: { width: 640, height: 480 } },                       // any camera
+  ];
 
-    return new Promise(resolve => {
-      video.onloadedmetadata = () => {
-        resolve(video);
-      };
-    });
-  } catch (err) {
-    alert("Camera access denied or not available. " + err);
+  for (let constraints of constraintsList) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = stream;
+      return new Promise(resolve => {
+        video.onloadedmetadata = () => resolve(video);
+      });
+    } catch (err) {
+      console.warn("Camera constraint failed:", err);
+    }
   }
+
+  throw new Error("No available camera. Close other apps, allow permissions, and reload.");
 }
 
-async function startTracking(){
-  await setupCamera();
+// Start face tracking
+async function startTracking() {
+  try {
+    await setupCamera();
+  } catch (err) {
+    console.error(err);
+    errorMsg.innerText = err.message;
+    errorMsg.style.display = "block";
+    return;
+  }
 
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
@@ -75,11 +105,11 @@ async function startTracking(){
 
   let lastTime = performance.now();
 
-  async function detectLoop(){
+  async function detectLoop() {
     const now = performance.now();
     const delta = now - lastTime;
 
-    if(delta > interval){
+    if (delta > interval) {
       lastTime = now - (delta % interval);
 
       const predictions = await model.estimateFaces(video, false);
@@ -106,7 +136,7 @@ async function startTracking(){
   detectLoop();
 }
 
-// Resize canvas on window resize
+// Handle window resize
 window.addEventListener('resize', () => {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
@@ -117,4 +147,3 @@ startTracking();
 
 </body>
 </html>
-
