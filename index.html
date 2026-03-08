@@ -3,120 +3,217 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Updated Head & Hand Tracking Camera</title>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection/dist/hand-pose-detection.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+<title>Advanced Body Tracking</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
 
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { overflow: hidden; background: black; display: flex; justify-content: center; align-items: center; height: 100vh; color: white; font-family: sans-serif; }
-video, canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; }
-canvas { pointer-events: none; }
-#errorMsg { position: absolute; z-index: 10; background: rgba(0,0,0,0.7); padding: 1em; border-radius: 8px; text-align: center; }
+body{
+margin:0;
+overflow:hidden;
+background:black;
+}
+
+video{
+position:fixed;
+top:0;
+left:0;
+width:100vw;
+height:100vh;
+object-fit:cover;
+transform:scaleX(-1);
+}
+
+canvas{
+position:fixed;
+top:0;
+left:0;
+width:100vw;
+height:100vh;
+pointer-events:none;
+}
+
+#switch{
+position:absolute;
+top:20px;
+right:20px;
+background:white;
+padding:10px 14px;
+border-radius:8px;
+font-weight:bold;
+}
 </style>
 </head>
 
 <body>
 
-<div id="errorMsg" style="display:none;"></div>
-<video id="video" autoplay playsinline></video>
-<canvas id="overlay"></canvas>
+<video id="video" autoplay playsinline muted></video>
+<canvas id="canvas"></canvas>
+<button id="switch">Switch Camera</button>
 
 <script>
-const video = document.getElementById("video");
-const canvas = document.getElementById("overlay");
-const ctx = canvas.getContext("2d");
-const errorMsg = document.getElementById("errorMsg");
 
-const FPS = 12;
-const interval = 1000 / FPS;
+const video = document.getElementById("video")
+const canvas = document.getElementById("canvas")
+const ctx = canvas.getContext("2d")
 
-async function setupCamera() {
-  const constraintsList = [
-    { video: { facingMode: "user", width: 640, height: 480 } },
-    { video: { width: 640, height: 480 } }
-  ];
-  for (let constraints of constraintsList) {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      video.srcObject = stream;
-      return new Promise(resolve => { video.onloadedmetadata = () => resolve(video); });
-    } catch (err) { console.warn("Camera constraint failed:", err); }
-  }
-  throw new Error("No available camera. Close other apps, allow permissions, and reload.");
+let detector
+let facingMode = "environment"
+
+const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent)
+const FPS = isMobile ? 9 : 12
+const frameInterval = 1000/FPS
+
+let lastFrame = 0
+
+async function startCamera(){
+
+if(video.srcObject){
+video.srcObject.getTracks().forEach(t=>t.stop())
 }
 
-async function startTracking() {
-  try { await setupCamera(); }
-  catch (err) { console.error(err); errorMsg.innerText = err.message; errorMsg.style.display = "block"; return; }
+const stream = await navigator.mediaDevices.getUserMedia({
+video:{facingMode:facingMode},
+audio:false
+})
 
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+video.srcObject = stream
 
-  const faceModel = await blazeface.load();
-  const handModel = await handPoseDetection.createDetector(
-    handPoseDetection.SupportedModels.MediaPipeHands,
-    { runtime: 'tfjs', maxHands: 2 }
-  );
+return new Promise(resolve=>{
+video.onloadedmetadata=()=>{
+video.play()
+canvas.width = video.videoWidth
+canvas.height = video.videoHeight
+resolve()
+}
+})
 
-  let lastTime = performance.now();
-
-  async function detectLoop() {
-    const now = performance.now();
-    const delta = now - lastTime;
-
-    if (delta > interval) {
-      lastTime = now - (delta % interval);
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-
-      // Run both detections concurrently
-      const [faces, hands] = await Promise.all([
-        faceModel.estimateFaces(video, false),
-        handModel.estimateHands(video, { flipHorizontal: true })
-      ]);
-
-      // Draw faces
-      faces.forEach(prediction => {
-        const [x1, y1] = prediction.topLeft;
-        const [x2, y2] = prediction.bottomRight;
-        ctx.fillStyle = "rgba(0,255,0,0.3)"; // semi-transparent green
-        ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
-        ctx.strokeStyle = "lime";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-      });
-
-      // Draw hands
-      hands.forEach(hand => {
-        const bbox = hand.boundingBox;
-        const x = bbox.topLeft[0];
-        const y = bbox.topLeft[1];
-        const width = bbox.bottomRight[0] - bbox.topLeft[0];
-        const height = bbox.bottomRight[1] - bbox.topLeft[1];
-        ctx.fillStyle = "rgba(0,255,255,0.3)"; // semi-transparent cyan
-        ctx.fillRect(x, y, width, height);
-        ctx.strokeStyle = "aqua";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, width, height);
-      });
-    }
-
-    requestAnimationFrame(detectLoop);
-  }
-
-  detectLoop();
 }
 
-window.addEventListener('resize', () => {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-});
+async function init(){
 
-startTracking();
+await startCamera()
+
+detector = await poseDetection.createDetector(
+poseDetection.SupportedModels.MoveNet,
+{
+runtime:"tfjs",
+modelType:"lightning"
+})
+
+detectLoop()
+
+}
+
+function createBox(points){
+
+let xs=[]
+let ys=[]
+
+points.forEach(p=>{
+if(p && p.score>0.4){
+xs.push(p.x)
+ys.push(p.y)
+}
+})
+
+if(xs.length===0) return null
+
+let minX=Math.min(...xs)
+let maxX=Math.max(...xs)
+let minY=Math.min(...ys)
+let maxY=Math.max(...ys)
+
+let padding = 30
+
+return [
+minX-padding,
+minY-padding,
+(maxX-minX)+padding*2,
+(maxY-minY)+padding*2
+]
+
+}
+
+function drawBox(box,color,label){
+
+if(!box) return
+
+let [x,y,w,h] = box
+
+ctx.fillStyle = color
+ctx.fillRect(x,y,w,h)
+
+ctx.strokeStyle = color.replace("0.35","1")
+ctx.lineWidth = 2
+ctx.strokeRect(x,y,w,h)
+
+ctx.fillStyle="white"
+ctx.font="16px Arial"
+ctx.fillText(label,x,y-6)
+
+}
+
+async function detectLoop(){
+
+requestAnimationFrame(detectLoop)
+
+const now = performance.now()
+if(now-lastFrame < frameInterval) return
+lastFrame = now
+
+ctx.clearRect(0,0,canvas.width,canvas.height)
+ctx.drawImage(video,0,0)
+
+if(!detector) return
+
+const poses = await detector.estimatePoses(video)
+
+poses.forEach(p=>{
+
+const k = p.keypoints
+
+const head = [
+k[0],k[1],k[2],k[3],k[4]
+]
+
+const body = [
+k[5],k[6],k[11],k[12]
+]
+
+const leftHand = [
+k[7], // left elbow
+k[9]  // left wrist
+]
+
+const rightHand = [
+k[8], // right elbow
+k[10] // right wrist
+]
+
+drawBox(createBox(head),"rgba(255,200,200,0.35)","Head")
+
+drawBox(createBox(body),"rgba(200,220,255,0.35)","Body")
+
+drawBox(createBox(leftHand),"rgba(200,255,200,0.35)","Left Hand")
+
+drawBox(createBox(rightHand),"rgba(255,255,200,0.35)","Right Hand")
+
+})
+
+}
+
+document.getElementById("switch").onclick = async ()=>{
+
+facingMode = facingMode==="environment" ? "user" : "environment"
+await startCamera()
+
+}
+
+init()
+
 </script>
 
 </body>
