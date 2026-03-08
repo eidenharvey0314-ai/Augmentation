@@ -3,120 +3,208 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Distant Person Detection</title>
+<title>Face & Hand Detection</title>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
 <style>
-*{margin:0;padding:0;box-sizing:border-box;}
-body{overflow:hidden;background:black;}
-video{position:fixed;top:0;left:0;width:100vw;height:100vh;object-fit:cover;transform:scaleX(-1);}
-canvas{position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;}
+body{
+margin:0;
+overflow:hidden;
+background:black;
+}
+
+video,canvas{
+position:absolute;
+width:100%;
+height:100%;
+object-fit:cover;
+}
+
+#status{
+position:absolute;
+top:10px;
+left:10px;
+color:white;
+background:rgba(0,0,0,0.5);
+padding:6px 10px;
+font-family:sans-serif;
+border-radius:6px;
+}
 </style>
 </head>
 
 <body>
+
+<div id="status">Starting camera...</div>
+
 <video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
 
 <script>
+
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
+const statusText = document.getElementById("status");
+
+let faces = [];
+let hands = [];
+
+function isMobile(){
+return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+const FPS = isMobile() ? 10 : 12;
+
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-/* CAMERA */
-navigator.mediaDevices.getUserMedia({video:{facingMode:"user"}})
-.then(stream => video.srcObject = stream);
-
-/* MODELS */
-let faceModel, objectModel;
-async function loadModels(){
-    faceModel = await blazeface.load();
-    objectModel = await cocoSsd.load();
+navigator.mediaDevices.getUserMedia({
+video:{
+width:{ideal:1280},
+height:{ideal:720},
+facingMode:"user"
 }
-loadModels();
+})
+.then(stream=>{
+video.srcObject = stream;
+statusText.innerText="Camera running";
+})
+.catch(err=>{
+statusText.innerText="Camera error: "+err.message;
+});
 
-/* HANDS */
-let handResults = null;
-const hands = new Hands({locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
-hands.setOptions({maxNumHands:2,modelComplexity:0,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
-hands.onResults(r => handResults = r);
 
-/* FPS control */
-const fps = 12;
-let lastFrameTime = 0;
 
-async function detect(timestamp){
-    if(!faceModel || !objectModel) return requestAnimationFrame(detect);
-    if(timestamp - lastFrameTime < 1000/fps) return requestAnimationFrame(detect);
-    lastFrameTime = timestamp;
 
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    ctx.save();
-    ctx.scale(-1,1);
-    ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
-    ctx.restore();
 
-    // FACE
-    const faces = await faceModel.estimateFaces(video,false);
-    faces.forEach(face => {
-        let x = face.topLeft[0];
-        let y = face.topLeft[1];
-        let w = face.bottomRight[0]-x;
-        let h = face.bottomRight[1]-y;
-        x = canvas.width - (x + w);
-        ctx.strokeStyle="lime"; ctx.lineWidth=3;
-        ctx.strokeRect(x,y,w,h);
-        ctx.fillStyle="lime"; ctx.font="18px Arial";
-        ctx.fillText("Face",x,y-10);
-    });
+/* FACE DETECTOR */
 
-    // PERSON
-    const objects = await objectModel.detect(video);
-    objects.forEach(obj=>{
-        if(obj.class==="person"){
-            let [x,y,w,h] = obj.bbox;
-            x = canvas.width - (x + w); // mirror
-            ctx.strokeStyle="red"; ctx.lineWidth=3;
-            ctx.strokeRect(x,y,w,h);
-            ctx.fillStyle="red"; ctx.font="18px Arial";
-            let label = (w*h < 5000) ? "Person (Far)" : "Person";
-            ctx.fillText(label,x,y-10);
-        }
-    });
+const faceDetector = new FaceDetection({
+locateFile:(file)=>{
+return `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`;
+}
+});
 
-    // HANDS
-    if(handResults?.multiHandLandmarks){
-        for(const hand of handResults.multiHandLandmarks){
-            drawConnectors(ctx,hand,HAND_CONNECTIONS,{color:"yellow",lineWidth:3});
-            drawLandmarks(ctx,hand,{color:"blue",lineWidth:2});
-            // bounding box
-            let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-            hand.forEach(p=>{
-                minX = Math.min(minX,p.x*canvas.width);
-                minY = Math.min(minY,p.y*canvas.height);
-                maxX = Math.max(maxX,p.x*canvas.width);
-                maxY = Math.max(maxY,p.y*canvas.height);
-            });
-            ctx.strokeStyle="yellow"; ctx.lineWidth=3;
-            ctx.strokeRect(minX,minY,maxX-minX,maxY-minY);
-            ctx.fillStyle="yellow"; ctx.fillText("Hand",minX,minY-10);
-        }
-    }
+faceDetector.setOptions({
+modelSelection:0,
+minDetectionConfidence:0.5
+});
 
-    requestAnimationFrame(detect);
+faceDetector.onResults(results=>{
+faces = results.detections || [];
+});
+
+
+
+
+
+/* HAND DETECTOR */
+
+const handDetector = new Hands({
+locateFile:(file)=>{
+return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+}
+});
+
+handDetector.setOptions({
+maxNumHands:2,
+modelComplexity:0,
+minDetectionConfidence:0.6,
+minTrackingConfidence:0.5
+});
+
+handDetector.onResults(results=>{
+hands = results.multiHandLandmarks || [];
+});
+
+
+
+
+
+function draw(){
+
+ctx.clearRect(0,0,canvas.width,canvas.height);
+
+ctx.drawImage(video,0,0,canvas.width,canvas.height);
+
+
+
+/* DRAW FACE BOX */
+
+faces.forEach(face=>{
+
+const box = face.boundingBox;
+
+const x = box.xCenter * canvas.width - (box.width * canvas.width)/2;
+const y = box.yCenter * canvas.height - (box.height * canvas.height)/2;
+const w = box.width * canvas.width;
+const h = box.height * canvas.height;
+
+ctx.fillStyle="rgba(0,255,120,0.25)";
+ctx.strokeStyle="lime";
+ctx.lineWidth=2;
+
+ctx.fillRect(x,y,w,h);
+ctx.strokeRect(x,y,w,h);
+
+});
+
+
+
+/* DRAW HAND BOX */
+
+hands.forEach(hand=>{
+
+let minX=1,minY=1,maxX=0,maxY=0;
+
+hand.forEach(pt=>{
+minX=Math.min(minX,pt.x);
+minY=Math.min(minY,pt.y);
+maxX=Math.max(maxX,pt.x);
+maxY=Math.max(maxY,pt.y);
+});
+
+const x=minX*canvas.width;
+const y=minY*canvas.height;
+const w=(maxX-minX)*canvas.width;
+const h=(maxY-minY)*canvas.height;
+
+ctx.fillStyle="rgba(0,120,255,0.25)";
+ctx.strokeStyle="cyan";
+
+ctx.fillRect(x,y,w,h);
+ctx.strokeRect(x,y,w,h);
+
+});
+
 }
 
-const camera = new Camera(video,{onFrame: async()=>await hands.send({image:video}),width:960,height:540});
-camera.start();
-requestAnimationFrame(detect);
+
+
+async function process(){
+
+if(video.readyState>=2){
+
+await faceDetector.send({image:video});
+await handDetector.send({image:video});
+
+draw();
+
+}
+
+setTimeout(process,1000/FPS);
+
+}
+
+video.onloadeddata=()=>{
+process();
+};
+
 </script>
+
 </body>
 </html>
