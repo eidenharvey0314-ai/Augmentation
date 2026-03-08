@@ -3,12 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Box Detection</title>
+<title>AI Box Detection Fixed</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
-
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils"></script>
@@ -30,6 +29,7 @@ canvas{position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
+
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
@@ -57,22 +57,28 @@ hands.onResults(r => handResults = r);
 const fps = 12;
 let lastFrameTime = 0;
 
-/* MAIN LOOP */
 async function detect(timestamp){
     if(!faceModel || !objectModel) return requestAnimationFrame(detect);
     if(timestamp - lastFrameTime < 1000/fps) return requestAnimationFrame(detect);
     lastFrameTime = timestamp;
 
     ctx.clearRect(0,0,canvas.width,canvas.height);
-    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    ctx.save();
+    ctx.scale(-1,1);
+    ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+    ctx.restore();
 
     /* FACE BOX */
     const faces = await faceModel.estimateFaces(video, false);
     faces.forEach(face => {
-        const x = face.topLeft[0];
-        const y = face.topLeft[1];
-        const w = face.bottomRight[0]-x;
-        const h = face.bottomRight[1]-y;
+        let x = face.topLeft[0];
+        let y = face.topLeft[1];
+        let w = face.bottomRight[0]-x;
+        let h = face.bottomRight[1]-y;
+
+        // mirror horizontally
+        x = canvas.width - (x + w);
+
         ctx.strokeStyle="lime";
         ctx.lineWidth=3;
         ctx.strokeRect(x,y,w,h);
@@ -85,7 +91,8 @@ async function detect(timestamp){
     const objects = await objectModel.detect(video);
     objects.forEach(obj=>{
         if(obj.class==="person"){
-            const [x,y,w,h] = obj.bbox;
+            let [x,y,w,h] = obj.bbox;
+            x = canvas.width - (x + w); // mirror
             ctx.strokeStyle="red";
             ctx.lineWidth=3;
             ctx.strokeRect(x,y,w,h);
