@@ -3,124 +3,202 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Smart Object Detection</title>
+
+<title>Human Body Detection</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{overflow:hidden;background:black;}
-video{position:fixed;top:0;left:0;width:100vw;height:100vh;object-fit:cover;transform:scaleX(-1);}
-canvas{position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;}
-#switchCamera{position:absolute;top:20px;right:20px;padding:10px 15px;background:white;border-radius:8px;font-weight:bold;cursor:pointer;z-index:100;}
+
+video{
+position:fixed;
+top:0;left:0;
+width:100vw;height:100vh;
+object-fit:cover;
+transform:scaleX(-1);
+}
+
+canvas{
+position:fixed;
+top:0;left:0;
+width:100vw;height:100vh;
+pointer-events:none;
+}
+
+#switchCamera{
+position:absolute;
+top:20px;
+right:20px;
+background:white;
+padding:10px 15px;
+border-radius:8px;
+font-weight:bold;
+z-index:100;
+}
 </style>
 </head>
 
 <body>
+
 <video id="video" autoplay playsinline muted></video>
 <canvas id="canvas"></canvas>
 <div id="switchCamera">Switch Camera</div>
 
 <script>
-const video = document.getElementById("video");
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
 
-// 12 target objects
-const DETECT_CLASSES = ["person","bottle","cup","chair","cell phone","laptop","book","bowl","apple","banana","keyboard","mouse"];
+const video = document.getElementById("video")
+const canvas = document.getElementById("canvas")
+const ctx = canvas.getContext("2d")
 
-// map approximate class names (fuzzy)
-const APPROX_MAP = {
-  "cell phone":["cell phone","phone","mobile phone"],
-  "apple":["apple","orange","fruit"],
-  "banana":["banana","fruit"],
-  "keyboard":["keyboard","computer keyboard"],
-  "mouse":["mouse","computer mouse"],
-  "bottle":["bottle","water bottle","wine bottle"],
-  "cup":["cup","mug"],
-  "chair":["chair","stool","bench"],
-  "laptop":["laptop","notebook"],
-  "book":["book","notepad"],
-  "bowl":["bowl","plate"]
-};
+canvas.width = window.innerWidth
+canvas.height = window.innerHeight
 
-// assign colors
-const COLORS = {};
-DETECT_CLASSES.forEach((c,i)=>{
-  const r = (i*50)%255, g = (255-(i*20))%255, b = (i*70)%255;
-  COLORS[c] = `rgba(${r},${g},${b},0.3)`;
-});
+let poseDetector
+let objectDetector
+let facingMode = "environment"
 
-let model;
-let currentFacingMode = "environment";
-let lastFrame = 0;
+let lastFrame = 0
 
-// start camera
-async function startCamera(facingMode){
-  if(video.srcObject) video.srcObject.getTracks().forEach(t=>t.stop());
-  const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode}, audio:false});
-  video.srcObject = stream;
-  await new Promise(r=>video.onloadedmetadata=()=>{video.play(); r();});
+async function startCamera(mode){
+
+if(video.srcObject)
+video.srcObject.getTracks().forEach(t=>t.stop())
+
+const stream = await navigator.mediaDevices.getUserMedia({
+video:{facingMode:mode},
+audio:false
+})
+
+video.srcObject = stream
+
+await new Promise(r=>{
+video.onloadedmetadata=()=>{
+video.play()
+r()
+}
+})
+
 }
 
-// check if prediction matches target list
-function matchesTarget(predClass){
-  for(const target of DETECT_CLASSES){
-    const approx = APPROX_MAP[target] || [];
-    if(target===predClass || approx.includes(predClass)) return target;
-  }
-  return null;
-}
-
-// load model
 async function init(){
-  await startCamera(currentFacingMode);
-  model = await cocoSsd.load({base: 'lite_mobilenet_v2'}); // more precise
-  detectFrame();
+
+await startCamera(facingMode)
+
+poseDetector = await poseDetection.createDetector(
+poseDetection.SupportedModels.MoveNet,
+{modelType:'lightning'}
+)
+
+objectDetector = await cocoSsd.load()
+
+detectLoop()
+
 }
 
-// 8-10 FPS
-async function detectFrame(){
-  requestAnimationFrame(detectFrame);
-  const now = performance.now();
-  if(now - lastFrame < 100) return;
-  lastFrame = now;
-  if(!model || video.readyState<4) return;
+function drawBox(x,y,w,h,color,label){
 
-  const predictions = await model.detect(video);
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.drawImage(video,0,0,canvas.width,canvas.height);
+ctx.fillStyle=color
+ctx.fillRect(x,y,w,h)
 
-  predictions.forEach(pred=>{
-    if(pred.score < 0.3) return; // skip low confidence
-    const target = matchesTarget(pred.class);
-    if(!target) return;
+ctx.strokeStyle=color.replace("0.3","1")
+ctx.lineWidth=2
+ctx.strokeRect(x,y,w,h)
 
-    const [x,y,w,h] = pred.bbox;
-    const color = COLORS[target];
-    ctx.fillStyle = color;
-    ctx.fillRect(x,y,w,h);
+ctx.fillStyle="white"
+ctx.font="16px Arial"
+ctx.fillText(label,x,y-5)
 
-    ctx.strokeStyle = color.replace("0.3","1");
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x,y,w,h);
-
-    ctx.fillStyle = color.replace("0.3","1");
-    ctx.font = "18px Arial";
-    ctx.fillText(target, x, y-5);
-  });
 }
 
-// switch camera
-document.getElementById("switchCamera").addEventListener("click", ()=>{
-  currentFacingMode = (currentFacingMode==="user")?"environment":"user";
-  startCamera(currentFacingMode);
-});
+async function detectLoop(){
 
-init();
+requestAnimationFrame(detectLoop)
+
+const now = performance.now()
+if(now-lastFrame<100) return
+lastFrame=now
+
+ctx.clearRect(0,0,canvas.width,canvas.height)
+ctx.drawImage(video,0,0,canvas.width,canvas.height)
+
+if(video.readyState<4) return
+
+// PERSON POSE
+const poses = await poseDetector.estimatePoses(video)
+
+poses.forEach(pose=>{
+
+const k = pose.keypoints
+
+const head = [k[0],k[1],k[2],k[3],k[4]]
+const wrists = [k[9],k[10]]
+const body = [k[5],k[6],k[11],k[12]]
+
+function boxFromPoints(points){
+
+let xs=[],ys=[]
+
+points.forEach(p=>{
+if(p.score>0.3){
+xs.push(p.x)
+ys.push(p.y)
+}
+})
+
+if(xs.length==0) return null
+
+let minX=Math.min(...xs)
+let maxX=Math.max(...xs)
+let minY=Math.min(...ys)
+let maxY=Math.max(...ys)
+
+return [minX,minY,maxX-minX,maxY-minY]
+
+}
+
+let headBox=boxFromPoints(head)
+let bodyBox=boxFromPoints(body)
+let handBox=boxFromPoints(wrists)
+
+if(headBox) drawBox(...headBox,"rgba(255,0,0,0.3)","Head")
+if(bodyBox) drawBox(...bodyBox,"rgba(0,255,0,0.3)","Body")
+if(handBox) drawBox(...handBox,"rgba(0,0,255,0.3)","Hands")
+
+})
+
+// ANIMAL DETECTION
+const preds = await objectDetector.detect(video)
+
+preds.forEach(p=>{
+
+const animals=[
+"cat","dog","horse","sheep","cow","bird"
+]
+
+if(!animals.includes(p.class)) return
+
+const [x,y,w,h]=p.bbox
+
+drawBox(x,y,w,h,"rgba(255,255,0,0.3)",p.class)
+
+})
+
+}
+
+document.getElementById("switchCamera").onclick=()=>{
+
+facingMode = facingMode==="environment" ? "user" : "environment"
+startCamera(facingMode)
+
+}
+
+init()
+
 </script>
+
 </body>
 </html>
