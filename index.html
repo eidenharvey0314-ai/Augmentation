@@ -1,159 +1,214 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Camera Tracking</title>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+<title>AI Vision System</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils"></script>
 
 <style>
 
-body{
+*{
 margin:0;
+padding:0;
+box-sizing:border-box;
+}
+
+body{
 overflow:hidden;
 background:black;
 }
 
-canvas{
-position:absolute;
+video{
+position:fixed;
 top:0;
 left:0;
+width:100vw;
+height:100vh;
+object-fit:cover;
+transform:scaleX(-1);
+}
+
+canvas{
+position:fixed;
+top:0;
+left:0;
+width:100vw;
+height:100vh;
+pointer-events:none;
 }
 
 </style>
 </head>
+
 <body>
 
-<video id="video" autoplay playsinline style="display:none"></video>
+<video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
 
 <script>
 
-const video = document.getElementById("video")
-const canvas = document.getElementById("canvas")
-const ctx = canvas.getContext("2d")
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
 
-let detector
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
-// Detect device
-const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-const FPS = isMobile ? 9 : 12
-const interval = 1000 / FPS
+/* CAMERA */
 
-function resize(){
-canvas.width = window.innerWidth
-canvas.height = window.innerHeight
+navigator.mediaDevices.getUserMedia({
+video:{facingMode:"environment"}
+})
+.then(stream=>{
+video.srcObject = stream;
+});
+
+/* LOAD AI MODELS */
+
+let faceModel;
+let objectModel;
+
+async function loadModels(){
+
+faceModel = await blazeface.load();
+objectModel = await cocoSsd.load();
+
 }
-resize()
-window.addEventListener("resize", resize)
 
-async function startCamera(){
+loadModels();
 
-const stream = await navigator.mediaDevices.getUserMedia({
-video:{
-facingMode:"user",
-width:{ideal:1280},
-height:{ideal:720}
+/* HAND TRACKING */
+
+let handResults=null;
+
+const hands = new Hands({
+locateFile: file =>
+`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+});
+
+hands.setOptions({
+maxNumHands:2,
+modelComplexity:0,
+minDetectionConfidence:0.5,
+minTrackingConfidence:0.5
+});
+
+hands.onResults(r=>{
+handResults=r;
+});
+
+/* MAIN LOOP */
+
+async function detect(){
+
+ctx.clearRect(0,0,canvas.width,canvas.height);
+
+ctx.drawImage(video,0,0,canvas.width,canvas.height);
+
+/* FACE BOX */
+
+if(faceModel){
+
+const faces = await faceModel.estimateFaces(video,false);
+
+faces.forEach(face=>{
+
+const x = face.topLeft[0];
+const y = face.topLeft[1];
+const w = face.bottomRight[0]-x;
+const h = face.bottomRight[1]-y;
+
+ctx.strokeStyle="lime";
+ctx.lineWidth=3;
+ctx.strokeRect(x,y,w,h);
+
+ctx.fillStyle="lime";
+ctx.font="18px Arial";
+ctx.fillText("Face",x,y-10);
+
+});
+
+}
+
+/* OBJECT DETECTION */
+
+if(objectModel){
+
+const objects = await objectModel.detect(video);
+
+objects.forEach(obj=>{
+
+const [x,y,w,h] = obj.bbox;
+
+/* DEPTH ESTIMATE */
+
+const depth = Math.round(1000/(w+h));
+
+ctx.strokeStyle="red";
+ctx.lineWidth=3;
+ctx.strokeRect(x,y,w,h);
+
+ctx.fillStyle="red";
+ctx.font="18px Arial";
+
+ctx.fillText(
+obj.class + " | depth:"+depth,
+x,
+y-10
+);
+
+});
+
+}
+
+/* HANDS */
+
+if(handResults?.multiHandLandmarks){
+
+for(const hand of handResults.multiHandLandmarks){
+
+drawConnectors(
+ctx,
+hand,
+HAND_CONNECTIONS,
+{color:"yellow", lineWidth:3}
+);
+
+drawLandmarks(
+ctx,
+hand,
+{color:"blue", lineWidth:2}
+);
+
+}
+
+}
+
+requestAnimationFrame(detect);
+
+}
+
+/* START CAMERA */
+
+const camera = new Camera(video,{
+onFrame: async ()=>{
+await hands.send({image:video});
+await detect();
 },
-audio:false
-})
+width:960,
+height:540
+});
 
-video.srcObject = stream
-
-return new Promise(resolve=>{
-video.onloadedmetadata = () => resolve()
-})
-
-}
-
-async function loadModel(){
-
-const model = poseDetection.SupportedModels.MoveNet
-
-detector = await poseDetection.createDetector(model,{
-modelType:"Lightning"
-})
-
-}
-
-function drawBox(x,y,color){
-
-const size = 60
-
-ctx.strokeStyle = color
-ctx.lineWidth = 3
-ctx.strokeRect(x-size/2,y-size/2,size,size)
-
-}
-
-let lastFrame = 0
-
-async function detect(time){
-
-if(time-lastFrame < interval){
-requestAnimationFrame(detect)
-return
-}
-
-lastFrame = time
-
-ctx.drawImage(video,0,0,canvas.width,canvas.height)
-
-const poses = await detector.estimatePoses(video)
-
-if(poses.length>0){
-
-const kp = poses[0].keypoints
-
-const nose = kp.find(p=>p.name==="nose")
-const leftWrist = kp.find(p=>p.name==="left_wrist")
-const rightWrist = kp.find(p=>p.name==="right_wrist")
-
-if(nose && nose.score > 0.4){
-
-const x = nose.x * canvas.width / video.videoWidth
-const y = nose.y * canvas.height / video.videoHeight
-
-drawBox(x,y,"#00ffff") // head
-
-}
-
-if(leftWrist && leftWrist.score > 0.4){
-
-const x = leftWrist.x * canvas.width / video.videoWidth
-const y = leftWrist.y * canvas.height / video.videoHeight
-
-drawBox(x,y,"#00ff00") // left hand
-
-}
-
-if(rightWrist && rightWrist.score > 0.4){
-
-const x = rightWrist.x * canvas.width / video.videoWidth
-const y = rightWrist.y * canvas.height / video.videoHeight
-
-drawBox(x,y,"#ff00ff") // right hand
-
-}
-
-}
-
-requestAnimationFrame(detect)
-
-}
-
-async function init(){
-
-await startCamera()
-await loadModel()
-
-requestAnimationFrame(detect)
-
-}
-
-init()
+camera.start();
 
 </script>
 
