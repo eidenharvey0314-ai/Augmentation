@@ -82,7 +82,7 @@ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`
 });
 
 holistic.setOptions({
-modelComplexity:1,
+modelComplexity:0.2,
 smoothLandmarks:true,
 enableSegmentation:false,
 minDetectionConfidence:0.5,
@@ -99,13 +99,17 @@ if(cameraMP){
 cameraMP.stop();
 }
 
+let frameCounter = 0;
 cameraMP = new Camera(video, {
-onFrame: async () => {
-await holistic.send({image: video});
-},
-width:1280,
-height:720,
-facingMode: cameraFacingMode
+  onFrame: async () => {
+    frameCounter++;
+    if(frameCounter % 2 === 0){
+      await holistic.send({image: video});
+    }
+  },
+  width:685,
+  height:510,
+  facingMode: cameraFacingMode
 });
 
 cameraMP.start().then(()=>{
@@ -187,3 +191,4 @@ loop();
 
 </body>
 </html>
+
