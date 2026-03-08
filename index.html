@@ -3,174 +3,111 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Simplified Body Tracking</title>
+<title>AI Face Tracking Camera</title>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
 
 <style>
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+}
+
 body{
-  margin:0;
-  overflow:hidden;
-  background:black;
+overflow:hidden;
+background:black;
 }
 
 video{
-  position:fixed;
-  top:0;
-  left:0;
-  width:100vw;
-  height:100vh;
-  object-fit:cover;
-  transform:scaleX(-1);
+position:fixed;
+top:0;
+left:0;
+width:100vw;
+height:100vh;
+object-fit:cover;
 }
 
 canvas{
-  position:fixed;
-  top:0;
-  left:0;
-  width:100vw;
-  height:100vh;
-  pointer-events:none;
-}
-
-#switch{
-  position:absolute;
-  top:20px;
-  right:20px;
-  background:white;
-  padding:10px 14px;
-  border-radius:8px;
-  font-weight:bold;
+position:fixed;
+top:0;
+left:0;
+width:100vw;
+height:100vh;
+pointer-events:none;
 }
 </style>
 </head>
 
 <body>
 
-<video id="video" autoplay playsinline muted></video>
-<canvas id="canvas"></canvas>
-<button id="switch">Switch Camera</button>
+<video id="video" autoplay playsinline></video>
+<canvas id="overlay"></canvas>
 
 <script>
+
 const video = document.getElementById("video");
-const canvas = document.getElementById("canvas");
+const canvas = document.getElementById("overlay");
 const ctx = canvas.getContext("2d");
 
-let detector;
-let facingMode = "environment";
+async function setupCamera(){
 
-const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
-const FPS = isMobile ? 9 : 12;
-const frameInterval = 1000 / FPS;
-let lastFrame = 0;
+const stream = await navigator.mediaDevices.getUserMedia({
+video:{ facingMode:"user" }
+});
 
-// Start camera
-async function startCamera() {
-  if (video.srcObject) {
-    video.srcObject.getTracks().forEach(t => t.stop());
-  }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: facingMode },
-      audio: false
-    });
-    video.srcObject = stream;
-    return new Promise(resolve => {
-      video.onloadedmetadata = () => {
-        video.play();
-        canvas.width = video.videoWidth || window.innerWidth;
-        canvas.height = video.videoHeight || window.innerHeight;
-        resolve();
-      };
-    });
-  } catch (err) {
-    console.error("Camera error:", err);
-  }
-}
+video.srcObject = stream;
 
-// Create bounding box from keypoints
-function createBox(points) {
-  const valid = points.filter(p => p && p.score > 0.4);
-  if (!valid.length) return null;
-
-  const xs = valid.map(p => p.x);
-  const ys = valid.map(p => p.y);
-  const padding = 30;
-
-  return [
-    Math.min(...xs) - padding,
-    Math.min(...ys) - padding,
-    Math.max(...xs) - Math.min(...xs) + padding * 2,
-    Math.max(...ys) - Math.min(...ys) + padding * 2
-  ];
-}
-
-// Draw bounding box
-function drawBox(box, color, label) {
-  if (!box) return;
-  const [x, y, w, h] = box;
-
-  ctx.fillStyle = color;
-  ctx.fillRect(x, y, w, h);
-
-  ctx.strokeStyle = color.replace(/0.35\)/, '1)');
-  ctx.lineWidth = 2;
-  ctx.strokeRect(x, y, w, h);
-
-  ctx.fillStyle = "white";
-  ctx.font = "16px Arial";
-  ctx.fillText(label, x, y - 6);
-}
-
-// Main detection loop
-async function detectLoop() {
-  requestAnimationFrame(detectLoop);
-
-  const now = performance.now();
-  if (now - lastFrame < frameInterval) return;
-  lastFrame = now;
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-  if (!detector) return;
-
-  const poses = await detector.estimatePoses(video);
-  poses.forEach(p => {
-    const k = p.keypoints;
-
-    const head = [k[0], k[1], k[2], k[3], k[4]].filter(Boolean);
-    const body = [k[5], k[6], k[11], k[12]].filter(Boolean);
-    const leftHand = [k[7], k[9]].filter(Boolean);
-    const rightHand = [k[8], k[10]].filter(Boolean);
-
-    drawBox(createBox(head), "rgba(255,100,100,0.35)", "Head");
-    drawBox(createBox(body), "rgba(100,150,255,0.35)", "Body");
-    drawBox(createBox(leftHand), "rgba(100,255,100,0.35)", "Left Hand");
-    drawBox(createBox(rightHand), "rgba(255,255,100,0.35)", "Right Hand");
-  });
-}
-
-// Initialize
-async function init() {
-  await startCamera();
-
-  detector = await poseDetection.createDetector(
-    poseDetection.SupportedModels.MoveNet,
-    { runtime: "tfjs", modelType: "lightning" }
-  );
-
-  detectLoop();
-}
-
-// Switch camera button
-document.getElementById("switch").onclick = async () => {
-  facingMode = facingMode === "environment" ? "user" : "environment";
-  await startCamera();
+return new Promise(resolve=>{
+video.onloadedmetadata = ()=>{
+resolve(video);
 };
+});
 
-init();
+}
+
+async function startTracking(){
+
+await setupCamera();
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+const model = await blazeface.load();
+
+detect(model);
+
+}
+
+async function detect(model){
+
+const predictions = await model.estimateFaces(video,false);
+
+ctx.clearRect(0,0,canvas.width,canvas.height);
+
+predictions.forEach(prediction=>{
+
+const start = prediction.topLeft;
+const end = prediction.bottomRight;
+
+const x = start[0];
+const y = start[1];
+const width = end[0] - start[0];
+const height = end[1] - start[1];
+
+ctx.strokeStyle = "lime";
+ctx.lineWidth = 4;
+ctx.strokeRect(x,y,width,height);
+
+});
+
+requestAnimationFrame(()=>detect(model));
+
+}
+
+startTracking();
+
 </script>
 
 </body>
