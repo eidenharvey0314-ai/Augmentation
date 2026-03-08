@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Face, Hand & Body Detection</title>
+<title>Updated Face, Hand & Body Detection</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
@@ -69,7 +69,9 @@ let cameraMP = null;
 function isMobile(){
 return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
-const FPS = isMobile() ? 10 : 12;
+
+// Reduced FPS for mobile to 8-9
+const FPS = isMobile() ? 9 : 12;
 
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
