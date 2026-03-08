@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Object Detection Camera Fix</title>
+<title>Mobile Object Detection</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
@@ -12,24 +12,36 @@
 *{ margin:0; padding:0; box-sizing:border-box; }
 body{ overflow:hidden; background:black; }
 video{
-    position:fixed;
-    top:0; left:0;
-    width:100vw; height:100vh;
-    object-fit:cover;
-    transform:scaleX(-1);
+  position:fixed;
+  top:0; left:0;
+  width:100vw; height:100vh;
+  object-fit:cover;
+  transform:scaleX(-1);
 }
 canvas{
-    position:fixed;
-    top:0; left:0;
-    width:100vw; height:100vh;
-    pointer-events:none;
+  position:fixed;
+  top:0; left:0;
+  width:100vw; height:100vh;
+  pointer-events:none;
+}
+#switchCamera{
+  position:absolute;
+  top:20px; right:20px;
+  padding:10px 15px;
+  background:white;
+  border-radius:8px;
+  font-weight:bold;
+  cursor:pointer;
+  z-index:100;
 }
 </style>
 </head>
 
 <body>
+
 <video id="video" autoplay playsinline muted></video>
 <canvas id="canvas"></canvas>
+<div id="switchCamera">Switch Camera</div>
 
 <script>
 const video = document.getElementById("video");
@@ -39,45 +51,63 @@ const ctx = canvas.getContext("2d");
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-// 12 common objects to detect
+// 12 common objects
 const DETECT_CLASSES = [
   "person","bottle","cup","chair","cell phone","laptop",
   "book","bowl","apple","banana","keyboard","mouse"
 ];
 
-let model;
+// assign a color to each object
+const COLORS = {
+  "person":"rgba(255,0,0,0.3)",
+  "bottle":"rgba(0,255,0,0.3)",
+  "cup":"rgba(0,0,255,0.3)",
+  "chair":"rgba(255,255,0,0.3)",
+  "cell phone":"rgba(255,0,255,0.3)",
+  "laptop":"rgba(0,255,255,0.3)",
+  "book":"rgba(255,128,0,0.3)",
+  "bowl":"rgba(128,0,255,0.3)",
+  "apple":"rgba(0,128,255,0.3)",
+  "banana":"rgba(128,255,0,0.3)",
+  "keyboard":"rgba(255,0,128,0.3)",
+  "mouse":"rgba(0,255,128,0.3)"
+};
 
-// Start camera function
-async function startCamera(){
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ 
-      video: { facingMode: "environment" }, audio:false 
+let model;
+let currentFacingMode = "environment"; // default camera
+let lastFrame = 0;
+
+// start camera
+async function startCamera(facingMode){
+  try{
+    if(video.srcObject){
+      video.srcObject.getTracks().forEach(t=>t.stop());
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode }, audio:false
     });
     video.srcObject = stream;
 
-    // Wait until the video is playing
-    await new Promise(resolve => {
+    await new Promise(resolve=>{
       video.onloadedmetadata = () => { video.play(); resolve(); };
     });
-  } catch(err){
+  }catch(err){
     alert("Cannot access camera: " + err);
   }
 }
 
-// Load model and start detection
+// load model
 async function init(){
-  await startCamera();
+  await startCamera(currentFacingMode);
   model = await cocoSsd.load();
   detectFrame();
 }
 
-// 12 FPS detection loop
-let lastFrame = 0;
+// 8-10 FPS detection
 async function detectFrame(){
   requestAnimationFrame(detectFrame);
-
   const now = performance.now();
-  if(now - lastFrame < 83) return; // ~12 FPS
+  if(now - lastFrame < 100) return; // ~10 FPS
   lastFrame = now;
 
   if(!model || video.readyState < 4) return;
@@ -90,23 +120,28 @@ async function detectFrame(){
   predictions.forEach(pred=>{
     if(DETECT_CLASSES.includes(pred.class)){
       const [x,y,w,h] = pred.bbox;
-
-      ctx.fillStyle = "rgba(0,255,0,0.3)";
+      const color = COLORS[pred.class] || "rgba(255,255,255,0.3)";
+      ctx.fillStyle = color;
       ctx.fillRect(x,y,w,h);
 
-      ctx.strokeStyle = "lime";
+      ctx.strokeStyle = color.replace("0.3","1");
       ctx.lineWidth = 2;
       ctx.strokeRect(x,y,w,h);
 
-      ctx.fillStyle = "lime";
+      ctx.fillStyle = color.replace("0.3","1");
       ctx.font = "18px Arial";
       ctx.fillText(pred.class, x, y-5);
     }
   });
 }
 
+// Switch camera button
+document.getElementById("switchCamera").addEventListener("click", ()=>{
+  currentFacingMode = (currentFacingMode==="user") ? "environment" : "user";
+  startCamera(currentFacingMode);
+});
+
 init();
 </script>
-
 </body>
 </html>
