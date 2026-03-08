@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Hand Shape with Camera Switch</title>
+<title>Hand Shape with Reliable Camera</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
@@ -57,13 +57,11 @@ canvas{
 <video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
 
-<!-- Draggable Color Picker -->
 <div id="colorPicker">
 <label>Pick Color: </label>
 <input type="color" id="colorInput" value="#FFFF00">
 </div>
 
-<!-- Camera Switch Button -->
 <div id="switchCamera">Switch Camera</div>
 
 <script>
@@ -83,33 +81,49 @@ let dragOffset = {x:0,y:0};
 /* HANDS */
 let handLandmarks = [];
 
-/* MEDIA PIPE HANDS */
+/* MediaPipe Hands */
 const hands = new Hands({
   locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
 });
-
 hands.setOptions({
   maxNumHands:2,
   modelComplexity:1,
   minDetectionConfidence:0.6,
   minTrackingConfidence:0.6
 });
+hands.onResults(results => { handLandmarks = results.multiHandLandmarks || []; });
 
-hands.onResults(results=>{
-  handLandmarks = results.multiHandLandmarks || [];
-});
-
-/* CAMERA CONTROL */
-let cameraDevice = "user"; // start with front camera
+/* CAMERA MANAGEMENT */
 let cameraInstance;
-async function startCamera(){
+let currentFacingMode = "user";
+
+async function startCamera(facingMode = "user"){
   if(cameraInstance) cameraInstance.stop();
+
+  try {
+    // Try requested camera first
+    const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode } });
+    video.srcObject = stream;
+  } catch(err){
+    console.warn("Requested camera failed, trying any available video input.", err);
+    // fallback to any video device
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevice = devices.find(d=>d.kind==="videoinput");
+    if(videoDevice){
+      const stream = await navigator.mediaDevices.getUserMedia({ video:{ deviceId:{ exact: videoDevice.deviceId } } });
+      video.srcObject = stream;
+    } else {
+      alert("No camera found!");
+    }
+  }
+
+  // MediaPipe Camera wrapper for hands
   cameraInstance = new Camera(video,{
-    onFrame: async ()=>{await hands.send({image:video});},
+    onFrame: async ()=>{ await hands.send({image:video}); },
     width:640,
-    height:480,
-    facingMode: cameraDevice
+    height:480
   });
+
   // 12 FPS throttle
   let lastFrame = 0;
   const origOnFrame = cameraInstance.onFrame;
@@ -122,39 +136,35 @@ async function startCamera(){
   }
   cameraInstance.start();
 }
-startCamera();
 
-/* SWITCH CAMERA BUTTON */
+// Start default camera
+startCamera(currentFacingMode);
+
+// Switch Camera Button
 document.getElementById("switchCamera").addEventListener("click", ()=>{
-  cameraDevice = (cameraDevice === "user") ? "environment" : "user";
-  startCamera();
+  currentFacingMode = (currentFacingMode==="user") ? "environment" : "user";
+  startCamera(currentFacingMode);
 });
 
-/* DRAGGABLE COLOR PICKER */
+/* Draggable Color Picker */
 const picker = document.getElementById("colorPicker");
 const colorInput = document.getElementById("colorInput");
 let pickerDragging = false;
 let pickerOffset = {x:0,y:0};
 
 picker.addEventListener('mousedown', e=>{
-    pickerDragging = true;
-    pickerOffset.x = e.clientX - picker.offsetLeft;
-    pickerOffset.y = e.clientY - picker.offsetTop;
+  pickerDragging = true;
+  pickerOffset.x = e.clientX - picker.offsetLeft;
+  pickerOffset.y = e.clientY - picker.offsetTop;
 });
 document.addEventListener('mousemove', e=>{
-    if(pickerDragging){
-        picker.style.left = (e.clientX - pickerOffset.x)+"px";
-        picker.style.top = (e.clientY - pickerOffset.y)+"px";
-    }
+  if(pickerDragging){
+    picker.style.left = (e.clientX - pickerOffset.x)+"px";
+    picker.style.top = (e.clientY - pickerOffset.y)+"px";
+  }
 });
-document.addEventListener('mouseup', e=>{
-    pickerDragging = false;
-});
-
-/* UPDATE RECT COLOR */
-colorInput.addEventListener('input', e=>{
-    rectColor = e.target.value;
-});
+document.addEventListener('mouseup', e=>{ pickerDragging=false; });
+colorInput.addEventListener('input', e=>{ rectColor = e.target.value; });
 
 /* UTILITY */
 function distance(p1,p2){ return Math.hypot(p2.x-p1.x,p2.y-p1.y); }
@@ -170,10 +180,7 @@ function drawLoop(){
     const x = index.x*canvas.width;
     const y = index.y*canvas.height;
 
-    ctx.beginPath();
-    ctx.arc(x,y,10,0,Math.PI*2);
-    ctx.fillStyle="cyan";
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(x,y,10,0,Math.PI*2); ctx.fillStyle="cyan"; ctx.fill();
 
     if(dragging){
       rect.x = x - dragOffset.x;
@@ -193,14 +200,8 @@ function drawLoop(){
     const x2 = index2.x*canvas.width;
     const y2 = index2.y*canvas.height;
 
-    ctx.beginPath();
-    ctx.arc(x1,y1,10,0,Math.PI*2);
-    ctx.fillStyle="cyan";
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(x2,y2,10,0,Math.PI*2);
-    ctx.fillStyle="cyan";
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(x1,y1,10,0,Math.PI*2); ctx.fillStyle="cyan"; ctx.fill();
+    ctx.beginPath(); ctx.arc(x2,y2,10,0,Math.PI*2); ctx.fillStyle="cyan"; ctx.fill();
 
     rect.x = Math.min(x1,x2);
     rect.y = Math.min(y1,y2);
@@ -224,7 +225,6 @@ function drawLoop(){
 
   requestAnimationFrame(drawLoop);
 }
-
 drawLoop();
 </script>
 
