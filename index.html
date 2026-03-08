@@ -4,11 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>Human Body Detection</title>
+<title>Pose Detection</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -16,16 +15,20 @@ body{overflow:hidden;background:black;}
 
 video{
 position:fixed;
-top:0;left:0;
-width:100vw;height:100vh;
+top:0;
+left:0;
+width:100vw;
+height:100vh;
 object-fit:cover;
 transform:scaleX(-1);
 }
 
 canvas{
 position:fixed;
-top:0;left:0;
-width:100vw;height:100vh;
+top:0;
+left:0;
+width:100vw;
+height:100vh;
 pointer-events:none;
 }
 
@@ -37,7 +40,7 @@ background:white;
 padding:10px 15px;
 border-radius:8px;
 font-weight:bold;
-z-index:100;
+z-index:10;
 }
 </style>
 </head>
@@ -54,14 +57,22 @@ const video = document.getElementById("video")
 const canvas = document.getElementById("canvas")
 const ctx = canvas.getContext("2d")
 
-canvas.width = window.innerWidth
-canvas.height = window.innerHeight
-
-let poseDetector
-let objectDetector
+let detector
 let facingMode = "environment"
 
+// Detect mobile
+const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+
+// FPS settings
+const targetFPS = isMobile ? 9 : 12
+const frameInterval = 1000 / targetFPS
+
 let lastFrame = 0
+
+function resizeCanvas(){
+canvas.width = video.videoWidth
+canvas.height = video.videoHeight
+}
 
 async function startCamera(mode){
 
@@ -75,10 +86,11 @@ audio:false
 
 video.srcObject = stream
 
-await new Promise(r=>{
-video.onloadedmetadata=()=>{
+await new Promise(resolve=>{
+video.onloadedmetadata = ()=>{
 video.play()
-r()
+resizeCanvas()
+resolve()
 }
 })
 
@@ -88,29 +100,56 @@ async function init(){
 
 await startCamera(facingMode)
 
-poseDetector = await poseDetection.createDetector(
+detector = await poseDetection.createDetector(
 poseDetection.SupportedModels.MoveNet,
 {modelType:'lightning'}
 )
-
-objectDetector = await cocoSsd.load()
 
 detectLoop()
 
 }
 
-function drawBox(x,y,w,h,color,label){
+function getBox(points){
 
-ctx.fillStyle=color
+let xs=[]
+let ys=[]
+
+points.forEach(p=>{
+if(p && p.score>0.35){
+xs.push(p.x)
+ys.push(p.y)
+}
+})
+
+if(xs.length===0) return null
+
+const padding = 20
+
+const minX = Math.min(...xs) - padding
+const maxX = Math.max(...xs) + padding
+const minY = Math.min(...ys) - padding
+const maxY = Math.max(...ys) + padding
+
+return [minX,minY,maxX-minX,maxY-minY]
+
+}
+
+function drawBox(box,color,label){
+
+if(!box) return
+
+const [x,y,w,h] = box
+
+ctx.fillStyle = color
 ctx.fillRect(x,y,w,h)
 
-ctx.strokeStyle=color.replace("0.3","1")
-ctx.lineWidth=2
+ctx.strokeStyle = color.replace("0.35","1")
+ctx.lineWidth = 2
 ctx.strokeRect(x,y,w,h)
 
-ctx.fillStyle="white"
-ctx.font="16px Arial"
-ctx.fillText(label,x,y-5)
+ctx.fillStyle = "white"
+ctx.font = "16px Arial"
+ctx.fillText(label,x,y-6)
 
 }
 
@@ -119,71 +158,39 @@ async function detectLoop(){
 requestAnimationFrame(detectLoop)
 
 const now = performance.now()
-if(now-lastFrame<100) return
-lastFrame=now
+if(now-lastFrame < frameInterval) return
+lastFrame = now
 
 ctx.clearRect(0,0,canvas.width,canvas.height)
-ctx.drawImage(video,0,0,canvas.width,canvas.height)
+ctx.drawImage(video,0,0)
 
-if(video.readyState<4) return
+if(video.readyState < 4) return
 
-// PERSON POSE
-const poses = await poseDetector.estimatePoses(video)
+const poses = await detector.estimatePoses(video)
 
 poses.forEach(pose=>{
 
 const k = pose.keypoints
 
-const head = [k[0],k[1],k[2],k[3],k[4]]
-const wrists = [k[9],k[10]]
-const body = [k[5],k[6],k[11],k[12]]
-
-function boxFromPoints(points){
-
-let xs=[],ys=[]
-
-points.forEach(p=>{
-if(p.score>0.3){
-xs.push(p.x)
-ys.push(p.y)
-}
-})
-
-if(xs.length==0) return null
-
-let minX=Math.min(...xs)
-let maxX=Math.max(...xs)
-let minY=Math.min(...ys)
-let maxY=Math.max(...ys)
-
-return [minX,minY,maxX-minX,maxY-minY]
-
-}
-
-let headBox=boxFromPoints(head)
-let bodyBox=boxFromPoints(body)
-let handBox=boxFromPoints(wrists)
-
-if(headBox) drawBox(...headBox,"rgba(255,0,0,0.3)","Head")
-if(bodyBox) drawBox(...bodyBox,"rgba(0,255,0,0.3)","Body")
-if(handBox) drawBox(...handBox,"rgba(0,0,255,0.3)","Hands")
-
-})
-
-// ANIMAL DETECTION
-const preds = await objectDetector.detect(video)
-
-preds.forEach(p=>{
-
-const animals=[
-"cat","dog","horse","sheep","cow","bird"
+const headPoints = [
+k[0],k[1],k[2],k[3],k[4]
 ]
 
-if(!animals.includes(p.class)) return
+const bodyPoints = [
+k[5],k[6],k[11],k[12]
+]
 
-const [x,y,w,h]=p.bbox
+const handPoints = [
+k[9],k[10]
+]
 
-drawBox(x,y,w,h,"rgba(255,255,0,0.3)",p.class)
+const headBox = getBox(headPoints)
+const bodyBox = getBox(bodyPoints)
+const handBox = getBox(handPoints)
+
+drawBox(headBox,"rgba(255,182,193,0.35)","Head")
+drawBox(bodyBox,"rgba(173,216,230,0.35)","Body")
+drawBox(handBox,"rgba(144,238,144,0.35)","Hands")
 
 })
 
