@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Object Detection</title>
+<title>Object Detection Camera Fix</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
@@ -13,26 +13,22 @@
 body{ overflow:hidden; background:black; }
 video{
     position:fixed;
-    top:0;
-    left:0;
-    width:100vw;
-    height:100vh;
+    top:0; left:0;
+    width:100vw; height:100vh;
     object-fit:cover;
     transform:scaleX(-1);
 }
 canvas{
     position:fixed;
-    top:0;
-    left:0;
-    width:100vw;
-    height:100vh;
+    top:0; left:0;
+    width:100vw; height:100vh;
     pointer-events:none;
 }
 </style>
 </head>
 
 <body>
-<video id="video" autoplay playsinline></video>
+<video id="video" autoplay playsinline muted></video>
 <canvas id="canvas"></canvas>
 
 <script>
@@ -51,27 +47,35 @@ const DETECT_CLASSES = [
 
 let model;
 
-// Start camera
+// Start camera function
 async function startCamera(){
-  try{
-    const stream = await navigator.mediaDevices.getUserMedia({ video:true });
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      video: { facingMode: "environment" }, audio:false 
+    });
     video.srcObject = stream;
+
+    // Wait until the video is playing
+    await new Promise(resolve => {
+      video.onloadedmetadata = () => { video.play(); resolve(); };
+    });
   } catch(err){
     alert("Cannot access camera: " + err);
   }
 }
 
-// Load model
-async function loadModel(){
+// Load model and start detection
+async function init(){
+  await startCamera();
   model = await cocoSsd.load();
-  startCamera();
   detectFrame();
 }
 
-// 12 FPS detection
+// 12 FPS detection loop
 let lastFrame = 0;
 async function detectFrame(){
   requestAnimationFrame(detectFrame);
+
   const now = performance.now();
   if(now - lastFrame < 83) return; // ~12 FPS
   lastFrame = now;
@@ -87,7 +91,6 @@ async function detectFrame(){
     if(DETECT_CLASSES.includes(pred.class)){
       const [x,y,w,h] = pred.bbox;
 
-      // semi-transparent fill
       ctx.fillStyle = "rgba(0,255,0,0.3)";
       ctx.fillRect(x,y,w,h);
 
@@ -102,7 +105,8 @@ async function detectFrame(){
   });
 }
 
-loadModel();
+init();
 </script>
+
 </body>
 </html>
