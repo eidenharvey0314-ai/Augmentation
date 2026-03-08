@@ -3,46 +3,46 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>UpdatedFace, Hand & Body Detection</title>
+<title>Face, Hand & Body Detection</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
 <style>
 body{
-margin:0;
-overflow:hidden;
-background:black;
+  margin:0;
+  overflow:hidden;
+  background:black;
 }
 video, canvas{
-position:absolute;
-width:100%;
-height:100%;
-object-fit:cover;
+  position:absolute;
+  width:100%;
+  height:100%;
+  object-fit:cover;
 }
 #status{
-position:absolute;
-top:10px;
-left:10px;
-color:white;
-background:rgba(0,0,0,0.5);
-padding:6px 10px;
-font-family:sans-serif;
-border-radius:6px;
-z-index:10;
+  position:absolute;
+  top:10px;
+  left:10px;
+  color:white;
+  background:rgba(0,0,0,0.5);
+  padding:6px 10px;
+  font-family:sans-serif;
+  border-radius:6px;
+  z-index:10;
 }
 #switchBtn{
-position:absolute;
-top:50px;
-left:10px;
-z-index:10;
-padding:6px 10px;
-border:none;
-border-radius:6px;
-background:rgba(255,255,255,0.8);
-color:black;
-font-weight:bold;
-cursor:pointer;
+  position:absolute;
+  top:50px;
+  left:10px;
+  z-index:10;
+  padding:6px 10px;
+  border:none;
+  border-radius:6px;
+  background:rgba(255,255,255,0.8);
+  color:black;
+  font-weight:bold;
+  cursor:pointer;
 }
 </style>
 </head>
@@ -67,129 +67,132 @@ let cameraFacingMode = "user"; // front by default
 let cameraMP = null;
 
 function isMobile(){
-return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
-// Reduced FPS for mobile to 8-9
+// FPS: 12 PC, 9 Mobile
 const FPS = isMobile() ? 9 : 12;
 
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+// Adjust canvas on load & rotation
+function updateCanvas(){
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener("resize", updateCanvas);
+window.addEventListener("orientationchange", updateCanvas);
+updateCanvas();
 
-// Holistic model
+// Holistic model (lighter for mobile)
 const holistic = new Holistic({
-locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`
+  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`
 });
 
 holistic.setOptions({
-modelComplexity:0.2,
-smoothLandmarks:true,
-enableSegmentation:false,
-minDetectionConfidence:0.5,
-minTrackingConfidence:0.5
+  modelComplexity: isMobile() ? 0 : 1, // lighter for mobile
+  smoothLandmarks:true,
+  enableSegmentation:false,
+  minDetectionConfidence:0.5,
+  minTrackingConfidence:0.5
 });
 
 holistic.onResults((results)=>{
-resultsData = results;
+  resultsData = results;
 });
 
 // Start camera
 async function startCamera(){
-if(cameraMP){
-cameraMP.stop();
-}
+  if(cameraMP){
+    cameraMP.stop();
+  }
 
-let frameCounter = 0;
-cameraMP = new Camera(video, {
-  onFrame: async () => {
-    frameCounter++;
-    if(frameCounter % 2 === 0){
+  const camWidth = isMobile() ? 640 : 1280;
+  const camHeight = isMobile() ? 480 : 720;
+
+  cameraMP = new Camera(video, {
+    onFrame: async () => {
       await holistic.send({image: video});
-    }
-  },
-  width:685,
-  height:510,
-  facingMode: cameraFacingMode
-});
+    },
+    width: camWidth,
+    height: camHeight,
+    facingMode: cameraFacingMode
+  });
 
-cameraMP.start().then(()=>{
-statusText.innerText="Camera running ("+cameraFacingMode+")";
-});
+  cameraMP.start().then(()=>{
+    statusText.innerText = `Camera running (${cameraFacingMode})`;
+  });
 }
 
 startCamera();
 
 // Switch camera button
 switchBtn.addEventListener("click",()=>{
-cameraFacingMode = (cameraFacingMode === "user") ? "environment" : "user";
-startCamera();
+  cameraFacingMode = (cameraFacingMode === "user") ? "environment" : "user";
+  startCamera();
 });
 
-// Draw function
+// Draw boxes
 function drawBoxes(){
-ctx.clearRect(0,0,canvas.width,canvas.height);
-ctx.drawImage(video,0,0,canvas.width,canvas.height);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(video,0,0,canvas.width,canvas.height);
 
-if(!resultsData) return;
+  if(!resultsData) return;
 
-// FACE box
-if(resultsData.faceLandmarks){
-let xVals = resultsData.faceLandmarks.map(l => l.x);
-let yVals = resultsData.faceLandmarks.map(l => l.y);
-let minX=Math.min(...xVals)*canvas.width;
-let maxX=Math.max(...xVals)*canvas.width;
-let minY=Math.min(...yVals)*canvas.height;
-let maxY=Math.max(...yVals)*canvas.height;
-ctx.fillStyle="rgba(0,255,0,0.25)";
-ctx.strokeStyle="lime";
-ctx.lineWidth=2;
-ctx.fillRect(minX,minY,maxX-minX,maxY-minY);
-ctx.strokeRect(minX,minY,maxX-minX,maxY-minY);
+  // FACE
+  if(resultsData.faceLandmarks){
+    const xVals = resultsData.faceLandmarks.map(l=>l.x);
+    const yVals = resultsData.faceLandmarks.map(l=>l.y);
+    const minX=Math.min(...xVals)*canvas.width;
+    const maxX=Math.max(...xVals)*canvas.width;
+    const minY=Math.min(...yVals)*canvas.height;
+    const maxY=Math.max(...yVals)*canvas.height;
+    ctx.fillStyle="rgba(0,255,0,0.25)";
+    ctx.strokeStyle="lime";
+    ctx.lineWidth=2;
+    ctx.fillRect(minX,minY,maxX-minX,maxY-minY);
+    ctx.strokeRect(minX,minY,maxX-minX,maxY-minY);
+  }
+
+  // HANDS
+  ["leftHandLandmarks","rightHandLandmarks"].forEach(hand=>{
+    if(resultsData[hand]){
+      const xVals = resultsData[hand].map(l=>l.x);
+      const yVals = resultsData[hand].map(l=>l.y);
+      const minX=Math.min(...xVals)*canvas.width;
+      const maxX=Math.max(...xVals)*canvas.width;
+      const minY=Math.min(...yVals)*canvas.height;
+      const maxY=Math.max(...yVals)*canvas.height;
+      ctx.fillStyle="rgba(0,120,255,0.25)";
+      ctx.strokeStyle="cyan";
+      ctx.fillRect(minX,minY,maxX-minX,maxY-minY);
+      ctx.strokeRect(minX,minY,maxX-minX,maxY-minY);
+    }
+  });
+
+  // BODY
+  if(resultsData.poseLandmarks){
+    const xVals = resultsData.poseLandmarks.map(l=>l.x);
+    const yVals = resultsData.poseLandmarks.map(l=>l.y);
+    const minX=Math.min(...xVals)*canvas.width;
+    const maxX=Math.max(...xVals)*canvas.width;
+    const minY=Math.min(...yVals)*canvas.height;
+    const maxY=Math.max(...yVals)*canvas.height;
+    ctx.fillStyle="rgba(255,120,0,0.25)";
+    ctx.strokeStyle="orange";
+    ctx.fillRect(minX,minY,maxX-minX,maxY-minY);
+    ctx.strokeRect(minX,minY,maxX-minX,maxY-minY);
+  }
 }
 
-// HANDS box
-["leftHandLandmarks","rightHandLandmarks"].forEach(hand=>{
-if(resultsData[hand]){
-let xVals = resultsData[hand].map(l=>l.x);
-let yVals = resultsData[hand].map(l=>l.y);
-let minX=Math.min(...xVals)*canvas.width;
-let maxX=Math.max(...xVals)*canvas.width;
-let minY=Math.min(...yVals)*canvas.height;
-let maxY=Math.max(...yVals)*canvas.height;
-ctx.fillStyle="rgba(0,120,255,0.25)";
-ctx.strokeStyle="cyan";
-ctx.fillRect(minX,minY,maxX-minX,maxY-minY);
-ctx.strokeRect(minX,minY,maxX-minX,maxY-minY);
-}
-});
-
-// BODY box
-if(resultsData.poseLandmarks){
-let xVals = resultsData.poseLandmarks.map(l=>l.x);
-let yVals = resultsData.poseLandmarks.map(l=>l.y);
-let minX=Math.min(...xVals)*canvas.width;
-let maxX=Math.max(...xVals)*canvas.width;
-let minY=Math.min(...yVals)*canvas.height;
-let maxY=Math.max(...yVals)*canvas.height;
-ctx.fillStyle="rgba(255,120,0,0.25)";
-ctx.strokeStyle="orange";
-ctx.fillRect(minX,minY,maxX-minX,maxY-minY);
-ctx.strokeRect(minX,minY,maxX-minX,maxY-minY);
-}
-}
-
-// Loop
+// Loop with FPS limit
 function loop(){
-drawBoxes();
-setTimeout(loop,1000/FPS);
+  drawBoxes();
+  setTimeout(loop,1000/FPS);
 }
 
-video.onloadeddata=()=>{
-loop();
+video.onloadeddata = () => {
+  loop();
 };
 </script>
 
 </body>
 </html>
-
-
