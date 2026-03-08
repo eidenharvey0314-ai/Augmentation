@@ -4,14 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>Pose Detection</title>
+<title>Body Detection</title>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
 
 <style>
-*{margin:0;padding:0;box-sizing:border-box;}
-body{overflow:hidden;background:black;}
+body{
+margin:0;
+overflow:hidden;
+background:black;
+}
 
 video{
 position:fixed;
@@ -32,15 +35,14 @@ height:100vh;
 pointer-events:none;
 }
 
-#switchCamera{
+#switch{
 position:absolute;
 top:20px;
 right:20px;
 background:white;
-padding:10px 15px;
+padding:10px 14px;
 border-radius:8px;
 font-weight:bold;
-z-index:10;
 }
 </style>
 </head>
@@ -49,7 +51,7 @@ z-index:10;
 
 <video id="video" autoplay playsinline muted></video>
 <canvas id="canvas"></canvas>
-<div id="switchCamera">Switch Camera</div>
+<button id="switch">Switch Camera</button>
 
 <script>
 
@@ -61,51 +63,51 @@ let detector
 let facingMode = "environment"
 
 // Detect mobile
-const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent)
 
-// FPS settings
-const targetFPS = isMobile ? 9 : 12
-const frameInterval = 1000 / targetFPS
+// FPS control
+const FPS = isMobile ? 9 : 12
+const interval = 1000 / FPS
 
-let lastFrame = 0
+let lastTime = 0
 
-function resizeCanvas(){
-canvas.width = video.videoWidth
-canvas.height = video.videoHeight
+async function startCamera(){
+
+if(video.srcObject){
+video.srcObject.getTracks().forEach(t=>t.stop())
 }
 
-async function startCamera(mode){
-
-if(video.srcObject)
-video.srcObject.getTracks().forEach(t=>t.stop())
-
 const stream = await navigator.mediaDevices.getUserMedia({
-video:{facingMode:mode},
+video:{facingMode:facingMode},
 audio:false
 })
 
 video.srcObject = stream
 
-await new Promise(resolve=>{
+return new Promise(resolve=>{
 video.onloadedmetadata = ()=>{
 video.play()
-resizeCanvas()
 resolve()
 }
 })
 
 }
 
-async function init(){
+async function setup(){
 
-await startCamera(facingMode)
+await startCamera()
+
+canvas.width = video.videoWidth
+canvas.height = video.videoHeight
 
 detector = await poseDetection.createDetector(
 poseDetection.SupportedModels.MoveNet,
-{modelType:'lightning'}
-)
+{
+runtime:"tfjs",
+modelType:"lightning"
+})
 
-detectLoop()
+loop()
 
 }
 
@@ -115,7 +117,7 @@ let xs=[]
 let ys=[]
 
 points.forEach(p=>{
-if(p && p.score>0.35){
+if(p && p.score>0.4){
 xs.push(p.x)
 ys.push(p.y)
 }
@@ -123,87 +125,81 @@ ys.push(p.y)
 
 if(xs.length===0) return null
 
-const padding = 20
+let minX=Math.min(...xs)
+let maxX=Math.max(...xs)
+let minY=Math.min(...ys)
+let maxY=Math.max(...ys)
 
-const minX = Math.min(...xs) - padding
-const maxX = Math.max(...xs) + padding
-const minY = Math.min(...ys) - padding
-const maxY = Math.max(...ys) + padding
+let pad=25
 
-return [minX,minY,maxX-minX,maxY-minY]
+return [
+minX-pad,
+minY-pad,
+(maxX-minX)+pad*2,
+(maxY-minY)+pad*2
+]
 
 }
 
-function drawBox(box,color,label){
+function draw(box,color,label){
 
 if(!box) return
 
-const [x,y,w,h] = box
+let [x,y,w,h]=box
 
-ctx.fillStyle = color
+ctx.fillStyle=color
 ctx.fillRect(x,y,w,h)
 
-ctx.strokeStyle = color.replace("0.35","1")
-ctx.lineWidth = 2
+ctx.strokeStyle=color.replace("0.35","1")
+ctx.lineWidth=2
 ctx.strokeRect(x,y,w,h)
 
-ctx.fillStyle = "white"
-ctx.font = "16px Arial"
+ctx.fillStyle="white"
+ctx.font="16px Arial"
 ctx.fillText(label,x,y-6)
 
 }
 
-async function detectLoop(){
+async function loop(){
 
-requestAnimationFrame(detectLoop)
+requestAnimationFrame(loop)
 
-const now = performance.now()
-if(now-lastFrame < frameInterval) return
-lastFrame = now
+let now = performance.now()
+if(now-lastTime < interval) return
+lastTime = now
 
 ctx.clearRect(0,0,canvas.width,canvas.height)
 ctx.drawImage(video,0,0)
 
-if(video.readyState < 4) return
+if(!detector) return
 
 const poses = await detector.estimatePoses(video)
 
-poses.forEach(pose=>{
+poses.forEach(p=>{
 
-const k = pose.keypoints
+const k = p.keypoints
 
-const headPoints = [
-k[0],k[1],k[2],k[3],k[4]
-]
+const head = [k[0],k[1],k[2],k[3],k[4]]
+const body = [k[5],k[6],k[11],k[12]]
+const hands = [k[9],k[10]]
 
-const bodyPoints = [
-k[5],k[6],k[11],k[12]
-]
-
-const handPoints = [
-k[9],k[10]
-]
-
-const headBox = getBox(headPoints)
-const bodyBox = getBox(bodyPoints)
-const handBox = getBox(handPoints)
-
-drawBox(headBox,"rgba(255,182,193,0.35)","Head")
-drawBox(bodyBox,"rgba(173,216,230,0.35)","Body")
-drawBox(handBox,"rgba(144,238,144,0.35)","Hands")
+draw(getBox(head),"rgba(255,200,200,0.35)","Head")
+draw(getBox(body),"rgba(200,220,255,0.35)","Body")
+draw(getBox(hands),"rgba(200,255,200,0.35)","Hands")
 
 })
 
 }
 
-document.getElementById("switchCamera").onclick=()=>{
+document.getElementById("switch").onclick = async ()=>{
 
 facingMode = facingMode==="environment" ? "user" : "environment"
-startCamera(facingMode)
+
+await startCamera()
 
 }
 
-init()
+setup()
 
 </script>
 
