@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Box Detection Fixed</title>
+<title>AI Distant Person Detection</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils"></script>
@@ -21,7 +21,6 @@ canvas{position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;
 </head>
 
 <body>
-
 <video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
 
@@ -29,7 +28,6 @@ canvas{position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
-
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
@@ -37,7 +35,7 @@ canvas.height = window.innerHeight;
 navigator.mediaDevices.getUserMedia({video:{facingMode:"user"}})
 .then(stream => video.srcObject = stream);
 
-/* LOAD MODELS */
+/* MODELS */
 let faceModel, objectModel;
 async function loadModels(){
     faceModel = await blazeface.load();
@@ -47,13 +45,11 @@ loadModels();
 
 /* HANDS */
 let handResults = null;
-const hands = new Hands({
-    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
-});
+const hands = new Hands({locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
 hands.setOptions({maxNumHands:2,modelComplexity:0,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
 hands.onResults(r => handResults = r);
 
-/* FPS CONTROL */
+/* FPS control */
 const fps = 12;
 let lastFrameTime = 0;
 
@@ -68,41 +64,35 @@ async function detect(timestamp){
     ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
     ctx.restore();
 
-    /* FACE BOX */
-    const faces = await faceModel.estimateFaces(video, false);
+    // FACE
+    const faces = await faceModel.estimateFaces(video,false);
     faces.forEach(face => {
         let x = face.topLeft[0];
         let y = face.topLeft[1];
         let w = face.bottomRight[0]-x;
         let h = face.bottomRight[1]-y;
-
-        // mirror horizontally
         x = canvas.width - (x + w);
-
-        ctx.strokeStyle="lime";
-        ctx.lineWidth=3;
+        ctx.strokeStyle="lime"; ctx.lineWidth=3;
         ctx.strokeRect(x,y,w,h);
-        ctx.fillStyle="lime";
-        ctx.font="18px Arial";
+        ctx.fillStyle="lime"; ctx.font="18px Arial";
         ctx.fillText("Face",x,y-10);
     });
 
-    /* OBJECTS (Body Detection) */
+    // PERSON
     const objects = await objectModel.detect(video);
     objects.forEach(obj=>{
         if(obj.class==="person"){
             let [x,y,w,h] = obj.bbox;
             x = canvas.width - (x + w); // mirror
-            ctx.strokeStyle="red";
-            ctx.lineWidth=3;
+            ctx.strokeStyle="red"; ctx.lineWidth=3;
             ctx.strokeRect(x,y,w,h);
-            ctx.fillStyle="red";
-            ctx.font="18px Arial";
-            ctx.fillText("Person",x,y-10);
+            ctx.fillStyle="red"; ctx.font="18px Arial";
+            let label = (w*h < 5000) ? "Person (Far)" : "Person";
+            ctx.fillText(label,x,y-10);
         }
     });
 
-    /* HANDS */
+    // HANDS
     if(handResults?.multiHandLandmarks){
         for(const hand of handResults.multiHandLandmarks){
             drawConnectors(ctx,hand,HAND_CONNECTIONS,{color:"yellow",lineWidth:3});
@@ -115,26 +105,18 @@ async function detect(timestamp){
                 maxX = Math.max(maxX,p.x*canvas.width);
                 maxY = Math.max(maxY,p.y*canvas.height);
             });
-            ctx.strokeStyle="yellow";
-            ctx.lineWidth=3;
+            ctx.strokeStyle="yellow"; ctx.lineWidth=3;
             ctx.strokeRect(minX,minY,maxX-minX,maxY-minY);
-            ctx.fillStyle="yellow";
-            ctx.fillText("Hand",minX,minY-10);
+            ctx.fillStyle="yellow"; ctx.fillText("Hand",minX,minY-10);
         }
     }
 
     requestAnimationFrame(detect);
 }
 
-/* START HAND CAMERA & DETECTION */
-const camera = new Camera(video,{
-    onFrame: async () => await hands.send({image:video}),
-    width:960,
-    height:540
-});
+const camera = new Camera(video,{onFrame: async()=>await hands.send({image:video}),width:960,height:540});
 camera.start();
 requestAnimationFrame(detect);
 </script>
-
 </body>
 </html>
