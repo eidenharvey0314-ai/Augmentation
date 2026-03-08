@@ -10,104 +10,109 @@
 
 <style>
 *{
-margin:0;
-padding:0;
-box-sizing:border-box;
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
 }
 
 body{
-overflow:hidden;
-background:black;
+  overflow:hidden;
+  background:black;
 }
 
-video{
-position:fixed;
-top:0;
-left:0;
-width:100vw;
-height:100vh;
-object-fit:cover;
+video, canvas{
+  position:fixed;
+  top:0;
+  left:0;
+  width:100vw;
+  height:100vh;
+  object-fit:cover;
 }
 
 canvas{
-position:fixed;
-top:0;
-left:0;
-width:100vw;
-height:100vh;
-pointer-events:none;
+  pointer-events:none;
 }
 </style>
 </head>
 
 <body>
-
 <video id="video" autoplay playsinline></video>
 <canvas id="overlay"></canvas>
 
 <script>
-
 const video = document.getElementById("video");
 const canvas = document.getElementById("overlay");
 const ctx = canvas.getContext("2d");
 
+// Limit FPS
+const FPS = 12;
+const interval = 1000 / FPS;
+
 async function setupCamera(){
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user" }
+    });
+    video.srcObject = stream;
 
-const stream = await navigator.mediaDevices.getUserMedia({
-video:{ facingMode:"user" }
-});
-
-video.srcObject = stream;
-
-return new Promise(resolve=>{
-video.onloadedmetadata = ()=>{
-resolve(video);
-};
-});
-
+    return new Promise(resolve => {
+      video.onloadedmetadata = () => {
+        resolve(video);
+      };
+    });
+  } catch (err) {
+    alert("Camera access denied or not available. " + err);
+  }
 }
 
 async function startTracking(){
+  await setupCamera();
 
-await setupCamera();
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
 
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+  const model = await blazeface.load();
 
-const model = await blazeface.load();
+  let lastTime = performance.now();
 
-detect(model);
+  async function detectLoop(){
+    const now = performance.now();
+    const delta = now - lastTime;
 
+    if(delta > interval){
+      lastTime = now - (delta % interval);
+
+      const predictions = await model.estimateFaces(video, false);
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      predictions.forEach(prediction => {
+        const start = prediction.topLeft;
+        const end = prediction.bottomRight;
+        const x = start[0];
+        const y = start[1];
+        const width = end[0] - start[0];
+        const height = end[1] - start[1];
+
+        ctx.strokeStyle = "lime";
+        ctx.lineWidth = 4;
+        ctx.strokeRect(x, y, width, height);
+      });
+    }
+
+    requestAnimationFrame(detectLoop);
+  }
+
+  detectLoop();
 }
 
-async function detect(model){
-
-const predictions = await model.estimateFaces(video,false);
-
-ctx.clearRect(0,0,canvas.width,canvas.height);
-
-predictions.forEach(prediction=>{
-
-const start = prediction.topLeft;
-const end = prediction.bottomRight;
-
-const x = start[0];
-const y = start[1];
-const width = end[0] - start[0];
-const height = end[1] - start[1];
-
-ctx.strokeStyle = "lime";
-ctx.lineWidth = 4;
-ctx.strokeRect(x,y,width,height);
-
+// Resize canvas on window resize
+window.addEventListener('resize', () => {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
 });
 
-requestAnimationFrame(()=>detect(model));
-
-}
-
 startTracking();
-
 </script>
 
 </body>
