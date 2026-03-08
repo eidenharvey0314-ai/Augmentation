@@ -1,174 +1,177 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Camera Tracking</title>
+<title>Simplified Body Tracking</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
 
 <style>
-
 body{
-margin:0;
-overflow:hidden;
-background:black;
+  margin:0;
+  overflow:hidden;
+  background:black;
+}
+
+video{
+  position:fixed;
+  top:0;
+  left:0;
+  width:100vw;
+  height:100vh;
+  object-fit:cover;
+  transform:scaleX(-1);
 }
 
 canvas{
-position:absolute;
-top:0;
-left:0;
+  position:fixed;
+  top:0;
+  left:0;
+  width:100vw;
+  height:100vh;
+  pointer-events:none;
 }
 
+#switch{
+  position:absolute;
+  top:20px;
+  right:20px;
+  background:white;
+  padding:10px 14px;
+  border-radius:8px;
+  font-weight:bold;
+}
 </style>
 </head>
+
 <body>
 
-<video id="video" autoplay playsinline style="display:none"></video>
+<video id="video" autoplay playsinline muted></video>
 <canvas id="canvas"></canvas>
+<button id="switch">Switch Camera</button>
 
 <script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
 
-const video = document.getElementById("video")
-const canvas = document.getElementById("canvas")
-const ctx = canvas.getContext("2d")
+let detector;
+let facingMode = "environment";
 
-let detector
+const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
+const FPS = isMobile ? 9 : 12;
+const frameInterval = 1000 / FPS;
+let lastFrame = 0;
 
-// Detect device
-const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-const FPS = isMobile ? 9 : 12
-const interval = 1000 / FPS
-
-function resize(){
-canvas.width = window.innerWidth
-canvas.height = window.innerHeight
-}
-resize()
-window.addEventListener("resize", resize)
-
-async function startCamera(){
-
-try{
-
-const stream = await navigator.mediaDevices.getUserMedia({
-video:true,
-audio:false
-})
-
-video.srcObject = stream
-
-}catch(error){
-
-if(error.name === "NotReadableError"){
-alert("Camera is already in use by another application.")
-}
-
-else if(error.name === "NotAllowedError"){
-alert("Camera permission denied.")
+// Start camera
+async function startCamera() {
+  if (video.srcObject) {
+    video.srcObject.getTracks().forEach(t => t.stop());
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: facingMode },
+      audio: false
+    });
+    video.srcObject = stream;
+    return new Promise(resolve => {
+      video.onloadedmetadata = () => {
+        video.play();
+        canvas.width = video.videoWidth || window.innerWidth;
+        canvas.height = video.videoHeight || window.innerHeight;
+        resolve();
+      };
+    });
+  } catch (err) {
+    console.error("Camera error:", err);
+  }
 }
 
-else{
-alert("Camera error: " + error.message)
+// Create bounding box from keypoints
+function createBox(points) {
+  const valid = points.filter(p => p && p.score > 0.4);
+  if (!valid.length) return null;
+
+  const xs = valid.map(p => p.x);
+  const ys = valid.map(p => p.y);
+  const padding = 30;
+
+  return [
+    Math.min(...xs) - padding,
+    Math.min(...ys) - padding,
+    Math.max(...xs) - Math.min(...xs) + padding * 2,
+    Math.max(...ys) - Math.min(...ys) + padding * 2
+  ];
 }
 
-console.error(error)
+// Draw bounding box
+function drawBox(box, color, label) {
+  if (!box) return;
+  const [x, y, w, h] = box;
 
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, w, h);
+
+  ctx.strokeStyle = color.replace(/0.35\)/, '1)');
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x, y, w, h);
+
+  ctx.fillStyle = "white";
+  ctx.font = "16px Arial";
+  ctx.fillText(label, x, y - 6);
 }
 
+// Main detection loop
+async function detectLoop() {
+  requestAnimationFrame(detectLoop);
+
+  const now = performance.now();
+  if (now - lastFrame < frameInterval) return;
+  lastFrame = now;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  if (!detector) return;
+
+  const poses = await detector.estimatePoses(video);
+  poses.forEach(p => {
+    const k = p.keypoints;
+
+    const head = [k[0], k[1], k[2], k[3], k[4]].filter(Boolean);
+    const body = [k[5], k[6], k[11], k[12]].filter(Boolean);
+    const leftHand = [k[7], k[9]].filter(Boolean);
+    const rightHand = [k[8], k[10]].filter(Boolean);
+
+    drawBox(createBox(head), "rgba(255,100,100,0.35)", "Head");
+    drawBox(createBox(body), "rgba(100,150,255,0.35)", "Body");
+    drawBox(createBox(leftHand), "rgba(100,255,100,0.35)", "Left Hand");
+    drawBox(createBox(rightHand), "rgba(255,255,100,0.35)", "Right Hand");
+  });
 }
 
-async function loadModel(){
+// Initialize
+async function init() {
+  await startCamera();
 
-const model = poseDetection.SupportedModels.MoveNet
+  detector = await poseDetection.createDetector(
+    poseDetection.SupportedModels.MoveNet,
+    { runtime: "tfjs", modelType: "lightning" }
+  );
 
-detector = await poseDetection.createDetector(model,{
-modelType:"Lightning"
-})
-
+  detectLoop();
 }
 
-function drawBox(x,y,color){
+// Switch camera button
+document.getElementById("switch").onclick = async () => {
+  facingMode = facingMode === "environment" ? "user" : "environment";
+  await startCamera();
+};
 
-const size = 60
-
-ctx.strokeStyle = color
-ctx.lineWidth = 3
-ctx.strokeRect(x-size/2,y-size/2,size,size)
-
-}
-
-let lastFrame = 0
-
-async function detect(time){
-
-if(time-lastFrame < interval){
-requestAnimationFrame(detect)
-return
-}
-
-lastFrame = time
-
-ctx.drawImage(video,0,0,canvas.width,canvas.height)
-
-const poses = await detector.estimatePoses(video)
-
-if(poses.length>0){
-
-const kp = poses[0].keypoints
-
-const nose = kp.find(p=>p.name==="nose")
-const leftWrist = kp.find(p=>p.name==="left_wrist")
-const rightWrist = kp.find(p=>p.name==="right_wrist")
-
-if(nose && nose.score > 0.4){
-
-const x = nose.x * canvas.width / video.videoWidth
-const y = nose.y * canvas.height / video.videoHeight
-
-drawBox(x,y,"#00ffff") // head
-
-}
-
-if(leftWrist && leftWrist.score > 0.4){
-
-const x = leftWrist.x * canvas.width / video.videoWidth
-const y = leftWrist.y * canvas.height / video.videoHeight
-
-drawBox(x,y,"#00ff00") // left hand
-
-}
-
-if(rightWrist && rightWrist.score > 0.4){
-
-const x = rightWrist.x * canvas.width / video.videoWidth
-const y = rightWrist.y * canvas.height / video.videoHeight
-
-drawBox(x,y,"#ff00ff") // right hand
-
-}
-
-}
-
-requestAnimationFrame(detect)
-
-}
-
-async function init(){
-
-await startCamera()
-await loadModel()
-
-requestAnimationFrame(detect)
-
-}
-
-init()
-
+init();
 </script>
 
 </body>
 </html>
-
