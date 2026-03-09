@@ -1,197 +1,176 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Face, Hand & Body Detection</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adaptive Camera Tracking</title>
 
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
 
 <style>
 body{
-  margin:0;
-  overflow:hidden;
-  background:black;
+margin:0;
+overflow:hidden;
+background:black;
 }
-video, canvas{
-  position:absolute;
-  width:100%;
-  height:100%;
-  object-fit:cover;
-}
-#status{
-  position:absolute;
-  top:10px;
-  left:10px;
-  color:white;
-  background:rgba(0,0,0,0.5);
-  padding:6px 10px;
-  font-family:sans-serif;
-  border-radius:6px;
-  z-index:10;
-}
-#switchBtn{
-  position:absolute;
-  top:50px;
-  left:10px;
-  z-index:10;
-  padding:6px 10px;
-  border:none;
-  border-radius:6px;
-  background:rgba(255,255,255,0.8);
-  color:black;
-  font-weight:bold;
-  cursor:pointer;
+
+canvas{
+position:absolute;
+top:0;
+left:0;
 }
 </style>
 </head>
 
 <body>
 
-<div id="status">Starting camera...</div>
-<button id="switchBtn">Switch Camera</button>
-
-<video id="video" autoplay playsinline></video>
+<video id="video" autoplay playsinline style="display:none"></video>
 <canvas id="canvas"></canvas>
 
 <script>
-const video = document.getElementById("video");
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
-const statusText = document.getElementById("status");
-const switchBtn = document.getElementById("switchBtn");
 
-let resultsData = null;
-let cameraFacingMode = "user"; // front by default
-let cameraMP = null;
+const video = document.getElementById("video")
+const canvas = document.getElementById("canvas")
+const ctx = canvas.getContext("2d")
 
-function isMobile(){
-  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+let detector
+
+const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+
+// Starting FPS
+let targetFPS = isMobile ? 10 : 12
+let interval = 1000 / targetFPS
+
+function resize(){
+canvas.width = window.innerWidth
+canvas.height = window.innerHeight
 }
+resize()
+window.addEventListener("resize", resize)
 
-// FPS: 12 PC, 9 Mobile
-const FPS = isMobile() ? 9 : 12;
-
-// Adjust canvas on load & rotation
-function updateCanvas(){
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
-window.addEventListener("resize", updateCanvas);
-window.addEventListener("orientationchange", updateCanvas);
-updateCanvas();
-
-// Holistic model (lighter for mobile)
-const holistic = new Holistic({
-  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`
-});
-
-holistic.setOptions({
-  modelComplexity: isMobile() ? 0 : 1, // lighter for mobile
-  smoothLandmarks:true,
-  enableSegmentation:false,
-  minDetectionConfidence:0.5,
-  minTrackingConfidence:0.5
-});
-
-holistic.onResults((results)=>{
-  resultsData = results;
-});
-
-// Start camera
 async function startCamera(){
-  if(cameraMP){
-    cameraMP.stop();
-  }
 
-  const camWidth = isMobile() ? 640 : 1280;
-  const camHeight = isMobile() ? 480 : 720;
+const stream = await navigator.mediaDevices.getUserMedia({
+video:{
+width: isMobile ? 480 : 1280,
+height: isMobile ? 360 : 720,
+frameRate: isMobile ? 15 : 30,
+facingMode:"user"
+},
+audio:false
+})
 
-  cameraMP = new Camera(video, {
-    onFrame: async () => {
-      await holistic.send({image: video});
-    },
-    width: camWidth,
-    height: camHeight,
-    facingMode: cameraFacingMode
-  });
+video.srcObject = stream
 
-  cameraMP.start().then(()=>{
-    statusText.innerText = `Camera running (${cameraFacingMode})`;
-  });
+return new Promise(resolve=>{
+video.onloadedmetadata = () => resolve()
+})
+
 }
 
-startCamera();
+async function loadModel(){
 
-// Switch camera button
-switchBtn.addEventListener("click",()=>{
-  cameraFacingMode = (cameraFacingMode === "user") ? "environment" : "user";
-  startCamera();
-});
+await tf.setBackend("webgl")   // GPU acceleration
+await tf.ready()
 
-// Draw boxes
-function drawBoxes(){
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.drawImage(video,0,0,canvas.width,canvas.height);
+const model = poseDetection.SupportedModels.MoveNet
 
-  if(!resultsData) return;
+detector = await poseDetection.createDetector(model,{
+modelType:"Lightning"
+})
 
-  // FACE
-  if(resultsData.faceLandmarks){
-    const xVals = resultsData.faceLandmarks.map(l=>l.x);
-    const yVals = resultsData.faceLandmarks.map(l=>l.y);
-    const minX=Math.min(...xVals)*canvas.width;
-    const maxX=Math.max(...xVals)*canvas.width;
-    const minY=Math.min(...yVals)*canvas.height;
-    const maxY=Math.max(...yVals)*canvas.height;
-    ctx.fillStyle="rgba(0,255,0,0.25)";
-    ctx.strokeStyle="lime";
-    ctx.lineWidth=2;
-    ctx.fillRect(minX,minY,maxX-minX,maxY-minY);
-    ctx.strokeRect(minX,minY,maxX-minX,maxY-minY);
-  }
-
-  // HANDS
-  ["leftHandLandmarks","rightHandLandmarks"].forEach(hand=>{
-    if(resultsData[hand]){
-      const xVals = resultsData[hand].map(l=>l.x);
-      const yVals = resultsData[hand].map(l=>l.y);
-      const minX=Math.min(...xVals)*canvas.width;
-      const maxX=Math.max(...xVals)*canvas.width;
-      const minY=Math.min(...yVals)*canvas.height;
-      const maxY=Math.max(...yVals)*canvas.height;
-      ctx.fillStyle="rgba(0,120,255,0.25)";
-      ctx.strokeStyle="cyan";
-      ctx.fillRect(minX,minY,maxX-minX,maxY-minY);
-      ctx.strokeRect(minX,minY,maxX-minX,maxY-minY);
-    }
-  });
-
-  // BODY
-  if(resultsData.poseLandmarks){
-    const xVals = resultsData.poseLandmarks.map(l=>l.x);
-    const yVals = resultsData.poseLandmarks.map(l=>l.y);
-    const minX=Math.min(...xVals)*canvas.width;
-    const maxX=Math.max(...xVals)*canvas.width;
-    const minY=Math.min(...yVals)*canvas.height;
-    const maxY=Math.max(...yVals)*canvas.height;
-    ctx.fillStyle="rgba(255,120,0,0.25)";
-    ctx.strokeStyle="orange";
-    ctx.fillRect(minX,minY,maxX-minX,maxY-minY);
-    ctx.strokeRect(minX,minY,maxX-minX,maxY-minY);
-  }
 }
 
-// Loop with FPS limit
-function loop(){
-  drawBoxes();
-  setTimeout(loop,1000/FPS);
+function drawBox(x,y,color){
+
+const size = 60
+
+ctx.strokeStyle = color
+ctx.lineWidth = 3
+ctx.strokeRect(x-size/2,y-size/2,size,size)
+
 }
 
-video.onloadeddata = () => {
-  loop();
-};
+let lastFrame = 0
+
+async function detect(time){
+
+if(time-lastFrame < interval){
+requestAnimationFrame(detect)
+return
+}
+
+lastFrame = time
+
+const start = performance.now()
+
+ctx.drawImage(video,0,0,canvas.width,canvas.height)
+
+const poses = await detector.estimatePoses(video)
+
+if(poses.length){
+
+const kp = poses[0].keypoints
+
+const nose = kp.find(p=>p.name==="nose")
+const left = kp.find(p=>p.name==="left_wrist")
+const right = kp.find(p=>p.name==="right_wrist")
+
+if(nose?.score > 0.4){
+drawBox(
+nose.x * canvas.width / video.videoWidth,
+nose.y * canvas.height / video.videoHeight,
+"#00ffff"
+)
+}
+
+if(left?.score > 0.4){
+drawBox(
+left.x * canvas.width / video.videoWidth,
+left.y * canvas.height / video.videoHeight,
+"#00ff88"
+)
+}
+
+if(right?.score > 0.4){
+drawBox(
+right.x * canvas.width / video.videoWidth,
+right.y * canvas.height / video.videoHeight,
+"#ff66ff"
+)
+}
+
+}
+
+const end = performance.now()
+const frameTime = end - start
+
+// Adaptive FPS logic
+if(frameTime > 120 && targetFPS > 6){
+targetFPS--
+interval = 1000 / targetFPS
+}
+
+if(frameTime < 70 && targetFPS < (isMobile ? 10 : 12)){
+targetFPS++
+interval = 1000 / targetFPS
+}
+
+requestAnimationFrame(detect)
+
+}
+
+async function init(){
+
+await startCamera()
+await loadModel()
+
+requestAnimationFrame(detect)
+
+}
+
+init()
+
 </script>
 
 </body>
