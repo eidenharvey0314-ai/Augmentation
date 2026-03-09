@@ -257,14 +257,24 @@ await startCamera()
 
 }
 
-vrBtn.onclick=()=>{
+vrBtn.onclick = async ()=>{
 
-vrMode=!vrMode
+vrMode = !vrMode
 
 if(vrMode){
-vrBtn.innerText="Exit VR"
+
+vrBtn.innerText = "Exit VR"
+
+await forceLandscape()
+
 }else{
-vrBtn.innerText="VR Mode"
+
+vrBtn.innerText = "VR Mode"
+
+if(document.fullscreenElement){
+document.exitFullscreen()
+}
+
 }
 
 }
@@ -278,7 +288,28 @@ processFrame()
 
 init()
 
+async function forceLandscape(){
+
+if(!isMobile) return
+
+try{
+
+if(document.documentElement.requestFullscreen){
+await document.documentElement.requestFullscreen()
+}
+
+if(screen.orientation && screen.orientation.lock){
+await screen.orientation.lock("landscape")
+}
+
+}catch(e){
+console.log("Landscape lock failed:", e)
+}
+
+}
+
 </script>
 
 </body>
 </html>
+
