@@ -262,17 +262,37 @@ vrBtn.onclick = async ()=>{
 vrMode = !vrMode
 
 if(vrMode){
+  vrBtn.innerText = "Exit VR"
 
-vrBtn.innerText = "Exit VR"
+  // 1️⃣ Enter fullscreen
+  if(document.documentElement.requestFullscreen){
+    await document.documentElement.requestFullscreen()
+  }
 
-await forceLandscape()
+  // 2️⃣ Lock to landscape if possible
+  if(screen.orientation && screen.orientation.lock){
+    try{
+      await screen.orientation.lock("landscape")
+    }catch(e){
+      console.log("Landscape lock failed:", e)
+    }
+  }
+
+  // 3️⃣ Resize canvas to fill screen
+  canvas.width = window.innerWidth
+  canvas.height = window.innerHeight
 
 }else{
+  vrBtn.innerText = "VR Mode"
 
-vrBtn.innerText = "VR Mode"
+  // Exit fullscreen
+  if(document.fullscreenElement){
+    await document.exitFullscreen()
+  }
 
-if(document.fullscreenElement){
-document.exitFullscreen()
+  // Resize canvas back (optional)
+  canvas.width = window.innerWidth
+  canvas.height = window.innerHeight
 }
 
 }
@@ -312,4 +332,5 @@ console.log("Landscape lock failed:", e)
 
 </body>
 </html>
+
 
