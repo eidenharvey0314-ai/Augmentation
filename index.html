@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hand Tracking VR Camera with Static</title>
+<title>Hand Tracking VR Camera with Zoom Static</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
@@ -117,13 +117,6 @@ hands.onResults(results=>{
   }
   ctx.restore();
 
-  // Apply static effect if zoom >1.5
-  if(zoom>1.5){
-    const staticIntensity = Math.min((zoom-1.5)/5,0.2);
-    const flicker = Math.random()*0.1;
-    drawStaticEffect(ctx,canvas.width,canvas.height,staticIntensity+flicker);
-  }
-
   if(results.multiHandLandmarks.length){
     const raw=results.multiHandLandmarks[0];
     if(!smoothedLandmarks) smoothedLandmarks=raw;
@@ -138,12 +131,28 @@ hands.onResults(results=>{
     const thumb=hand[4], index=hand[8], middle=hand[12], ring=hand[16], pinky=hand[20];
     const spread = distance(index,pinky)+distance(thumb,middle);
 
+    // Zoom with finger spread
+    let zooming = false;
     if(lastSpread!==0){
-      if(spread>lastSpread+0.02) zoom+=0.08; // faster zoom for higher max
-      if(spread<lastSpread-0.02) zoom-=0.08;
-      zoom=Math.max(1, Math.min(6.5, zoom)); // 6.5x max
+      if(spread>lastSpread+0.02){
+        zoom += 0.08;
+        zooming = true;
+      }
+      if(spread<lastSpread-0.02){
+        zoom -= 0.08;
+        zooming = true;
+      }
+      zoom = Math.max(1, Math.min(6.5, zoom)); 
     }
-    lastSpread=spread;
+
+    // Apply static effect only while actively zooming
+    if(zooming){
+      const staticIntensity = Math.min(Math.abs(spread-lastSpread)/0.1, 0.2);
+      const flicker = Math.random()*0.1;
+      drawStaticEffect(ctx, canvas.width, canvas.height, staticIntensity + flicker);
+    }
+
+    lastSpread = spread;
 
     const palmFacingCamera = hand[9].z < hand[0].z;
     const tips=[thumb,index,middle,ring,pinky];
