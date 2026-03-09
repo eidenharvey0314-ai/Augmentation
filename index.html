@@ -65,14 +65,13 @@ let stream = null
 
 let zoom = 1
 let lastSpread = 0
+let smoothedLandmarks = null
 
 function distance(a,b){
-
 return Math.sqrt(
 Math.pow(a.x-b.x,2) +
 Math.pow(a.y-b.y,2)
 )
-
 }
 
 const hands = new Hands({
@@ -84,8 +83,8 @@ return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
 hands.setOptions({
 
 maxNumHands:1,
-modelComplexity:0,
-minDetectionConfidence:0.7,
+modelComplexity:1,
+minDetectionConfidence:0.6,
 minTrackingConfidence:0.6
 
 })
@@ -106,7 +105,23 @@ ctx.restore()
 
 if(results.multiHandLandmarks.length){
 
-const hand = results.multiHandLandmarks[0]
+const raw = results.multiHandLandmarks[0]
+
+if(!smoothedLandmarks){
+smoothedLandmarks = raw
+}
+
+const smoothFactor = 0.6
+
+smoothedLandmarks = raw.map((p,i)=>({
+
+x: smoothedLandmarks[i].x * smoothFactor + p.x * (1-smoothFactor),
+y: smoothedLandmarks[i].y * smoothFactor + p.y * (1-smoothFactor),
+z: p.z
+
+}))
+
+const hand = smoothedLandmarks
 
 const thumb = hand[4]
 const index = hand[8]
@@ -134,20 +149,26 @@ zoom = Math.max(1,Math.min(2.5,zoom))
 
 lastSpread = spread
 
+// detect palm vs back of hand
+
+const palmFacingCamera =
+hand[9].z < hand[0].z
+
 const tips = [thumb,index,middle,ring,pinky]
 
 for(let p of tips){
 
 ctx.beginPath()
+
 ctx.arc(
-p.x*canvas.width,
-p.y*canvas.height,
+p.x * canvas.width,
+p.y * canvas.height,
 10,
 0,
 Math.PI*2
 )
 
-ctx.fillStyle="#00ffff"
+ctx.fillStyle = palmFacingCamera ? "#00ff88" : "#ff8800"
 ctx.fill()
 
 }
@@ -215,3 +236,4 @@ init()
 
 </body>
 </html>
+
