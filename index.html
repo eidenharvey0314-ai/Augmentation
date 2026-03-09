@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Finger-Centered Zoom VR Hand Tracking</title>
+<title>Finger-Centered Crop Zoom VR</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
@@ -42,7 +42,6 @@ button{
 </head>
 
 <body>
-
 <video id="video" autoplay playsinline style="display:none"></video>
 <canvas id="canvas"></canvas>
 
@@ -69,10 +68,6 @@ let lastSpread = 0;
 let vrMode = false;
 let smoothedLandmarks = null;
 
-// Finger-centered offset
-let offsetX = 0, offsetY = 0;
-let smoothOffsetX = 0, smoothOffsetY = 0;
-
 // Distance helper
 function distance(a,b){
   return Math.sqrt(Math.pow(a.x-b.x,2)+Math.pow(a.y-b.y,2));
@@ -80,7 +75,7 @@ function distance(a,b){
 
 // Static effect function
 function drawStaticEffect(ctx, width, height, intensity=0.05){
-    const imageData = ctx.getImageData(0, 0, width, height);
+    const imageData = ctx.getImageData(0,0,width,height);
     const data = imageData.data;
     const totalPixels = width*height;
     for(let i=0;i<totalPixels;i++){
@@ -107,14 +102,15 @@ hands.setOptions({
 hands.onResults(results=>{
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
-  // Default offsets
   let zooming = false;
+  let fingerX = video.videoWidth/2;
+  let fingerY = video.videoHeight/2;
 
   if(results.multiHandLandmarks.length){
-    const raw=results.multiHandLandmarks[0];
-    if(!smoothedLandmarks) smoothedLandmarks=raw;
+    const raw = results.multiHandLandmarks[0];
+    if(!smoothedLandmarks) smoothedLandmarks = raw;
     const smoothFactor=0.6;
-    smoothedLandmarks=raw.map((p,i)=>({
+    smoothedLandmarks = raw.map((p,i)=>({
       x: smoothedLandmarks[i].x*smoothFactor + p.x*(1-smoothFactor),
       y: smoothedLandmarks[i].y*smoothFactor + p.y*(1-smoothFactor),
       z: p.z
@@ -133,16 +129,14 @@ hands.onResults(results=>{
     }
     lastSpread = spread;
 
-    // Finger-centered offsets
+    // Compute average fingertip position
     let avgX=0, avgY=0;
     for(let p of tips){ avgX+=p.x; avgY+=p.y; }
     avgX/=tips.length;
     avgY/=tips.length;
-    offsetX = (avgX - 0.5)*canvas.width;
-    offsetY = (avgY - 0.5)*canvas.height;
-    const smoothing = 0.1;
-    smoothOffsetX = smoothOffsetX*(1-smoothing) + offsetX*smoothing;
-    smoothOffsetY = smoothOffsetY*(1-smoothing) + offsetY*smoothing;
+
+    fingerX = avgX*video.videoWidth;
+    fingerY = avgY*video.videoHeight;
 
     // Static effect only while zooming
     if(zooming){
@@ -161,23 +155,26 @@ hands.onResults(results=>{
     }
   }
 
-  // Draw video / VR with finger-centered zoom
-  ctx.save();
-  ctx.translate(canvas.width/2 - smoothOffsetX*zoom, canvas.height/2 - smoothOffsetY*zoom);
-  ctx.scale(zoom, zoom);
-  ctx.translate(-canvas.width/2, -canvas.height/2);
+  // --- Draw video using crop + scale centered on finger ---
+  const zoomFactor = zoom;
+  const cropW = video.videoWidth/zoomFactor;
+  const cropH = video.videoHeight/zoomFactor;
+  let cropX = fingerX - cropW/2;
+  let cropY = fingerY - cropH/2;
+  cropX = Math.max(0, Math.min(cropX, video.videoWidth - cropW));
+  cropY = Math.max(0, Math.min(cropY, video.videoHeight - cropH));
 
   if(!vrMode){
-    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
   }else{
-    const half=canvas.width/2;
-    ctx.drawImage(video,0,0,half,canvas.height);
-    ctx.drawImage(video,half,0,half,canvas.height);
+    const half = canvas.width/2;
+    ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, half, canvas.height);
+    ctx.drawImage(video, cropX, cropY, cropW, cropH, half, 0, half, canvas.height);
   }
 
-  ctx.restore();
 });
 
+// --- Camera setup ---
 async function startCamera(){
   if(stream) stream.getTracks().forEach(track=>track.stop());
   stream = await navigator.mediaDevices.getUserMedia({
