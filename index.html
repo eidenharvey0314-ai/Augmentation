@@ -2,16 +2,21 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Adaptive Camera Tracking</title>
+<title>Hand Zoom Detection</title>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
 <style>
+
 body{
 margin:0;
 overflow:hidden;
 background:black;
+}
+
+video{
+display:none;
 }
 
 canvas{
@@ -19,12 +24,13 @@ position:absolute;
 top:0;
 left:0;
 }
+
 </style>
 </head>
 
 <body>
 
-<video id="video" autoplay playsinline style="display:none"></video>
+<video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
 
 <script>
@@ -33,28 +39,117 @@ const video = document.getElementById("video")
 const canvas = document.getElementById("canvas")
 const ctx = canvas.getContext("2d")
 
-let detector
+canvas.width = window.innerWidth
+canvas.height = window.innerHeight
 
 const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
 
-// Starting FPS
-let targetFPS = isMobile ? 10 : 12
-let interval = 1000 / targetFPS
+let zoom = 1
+let lastSpread = 0
 
-function resize(){
-canvas.width = window.innerWidth
-canvas.height = window.innerHeight
+function distance(a,b){
+
+return Math.sqrt(
+Math.pow(a.x-b.x,2) +
+Math.pow(a.y-b.y,2)
+)
+
 }
-resize()
-window.addEventListener("resize", resize)
 
-async function startCamera(){
+const hands = new Hands({
+locateFile: (file)=>{
+return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+}
+})
+
+hands.setOptions({
+
+maxNumHands:1,
+modelComplexity:0,   // mobile optimized
+minDetectionConfidence:0.7,
+minTrackingConfidence:0.6
+
+})
+
+hands.onResults(results=>{
+
+ctx.clearRect(0,0,canvas.width,canvas.height)
+
+ctx.save()
+
+// zoom effect
+ctx.translate(canvas.width/2,canvas.height/2)
+ctx.scale(zoom,zoom)
+ctx.translate(-canvas.width/2,-canvas.height/2)
+
+ctx.drawImage(video,0,0,canvas.width,canvas.height)
+
+ctx.restore()
+
+if(results.multiHandLandmarks.length){
+
+const hand = results.multiHandLandmarks[0]
+
+// fingertip indexes
+const thumb = hand[4]
+const index = hand[8]
+const middle = hand[12]
+const ring = hand[16]
+const pinky = hand[20]
+
+// measure finger spread
+const spread =
+distance(index,pinky) +
+distance(thumb,middle)
+
+if(lastSpread !== 0){
+
+if(spread > lastSpread + 0.02){
+
+zoom += 0.03
+}
+
+if(spread < lastSpread - 0.02){
+
+zoom -= 0.03
+}
+
+zoom = Math.max(1, Math.min(2.5, zoom))
+
+}
+
+lastSpread = spread
+
+// draw fingertip markers
+
+const tips = [thumb,index,middle,ring,pinky]
+
+for(let p of tips){
+
+ctx.beginPath()
+ctx.arc(
+p.x * canvas.width,
+p.y * canvas.height,
+10,
+0,
+Math.PI*2
+)
+
+ctx.fillStyle="#00ffff"
+ctx.fill()
+
+}
+
+}
+
+})
+
+async function start(){
 
 const stream = await navigator.mediaDevices.getUserMedia({
 video:{
 width: isMobile ? 480 : 1280,
 height: isMobile ? 360 : 720,
-frameRate: isMobile ? 15 : 30,
 facingMode:"user"
 },
 audio:false
@@ -62,114 +157,25 @@ audio:false
 
 video.srcObject = stream
 
-return new Promise(resolve=>{
-video.onloadedmetadata = () => resolve()
+video.onloadedmetadata = ()=>{
+
+video.play()
+
+const camera = new Camera(video,{
+onFrame: async ()=>{
+await hands.send({image:video})
+},
+width: canvas.width,
+height: canvas.height
 })
 
-}
+camera.start()
 
-async function loadModel(){
-
-await tf.setBackend("webgl")   // GPU acceleration
-await tf.ready()
-
-const model = poseDetection.SupportedModels.MoveNet
-
-detector = await poseDetection.createDetector(model,{
-modelType:"Lightning"
-})
-
-}
-
-function drawBox(x,y,color){
-
-const size = 60
-
-ctx.strokeStyle = color
-ctx.lineWidth = 3
-ctx.strokeRect(x-size/2,y-size/2,size,size)
-
-}
-
-let lastFrame = 0
-
-async function detect(time){
-
-if(time-lastFrame < interval){
-requestAnimationFrame(detect)
-return
-}
-
-lastFrame = time
-
-const start = performance.now()
-
-ctx.drawImage(video,0,0,canvas.width,canvas.height)
-
-const poses = await detector.estimatePoses(video)
-
-if(poses.length){
-
-const kp = poses[0].keypoints
-
-const nose = kp.find(p=>p.name==="nose")
-const left = kp.find(p=>p.name==="left_wrist")
-const right = kp.find(p=>p.name==="right_wrist")
-
-if(nose?.score > 0.4){
-drawBox(
-nose.x * canvas.width / video.videoWidth,
-nose.y * canvas.height / video.videoHeight,
-"#00ffff"
-)
-}
-
-if(left?.score > 0.4){
-drawBox(
-left.x * canvas.width / video.videoWidth,
-left.y * canvas.height / video.videoHeight,
-"#00ff88"
-)
-}
-
-if(right?.score > 0.4){
-drawBox(
-right.x * canvas.width / video.videoWidth,
-right.y * canvas.height / video.videoHeight,
-"#ff66ff"
-)
 }
 
 }
 
-const end = performance.now()
-const frameTime = end - start
-
-// Adaptive FPS logic
-if(frameTime > 120 && targetFPS > 6){
-targetFPS--
-interval = 1000 / targetFPS
-}
-
-if(frameTime < 70 && targetFPS < (isMobile ? 10 : 12)){
-targetFPS++
-interval = 1000 / targetFPS
-}
-
-requestAnimationFrame(detect)
-
-}
-
-async function init(){
-
-await startCamera()
-await loadModel()
-
-requestAnimationFrame(detect)
-
-}
-
-init()
+start()
 
 </script>
 
