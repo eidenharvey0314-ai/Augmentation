@@ -7,42 +7,41 @@
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
 <style>
-
 body{
-margin:0;
-overflow:hidden;
-background:black;
+  margin:0;
+  overflow:hidden;
+  background:black;
 }
 
 canvas{
-position:absolute;
-top:0;
-left:0;
+  position:absolute;
+  top:0;
+  left:0;
 }
 
 button{
-position:absolute;
-left:50%;
-transform:translateX(-50%);
-padding:12px 20px;
-font-size:16px;
-border:none;
-border-radius:8px;
-font-weight:bold;
+  position:absolute;
+  left:50%;
+  transform:translateX(-50%);
+  padding:12px 20px;
+  font-size:16px;
+  border:none;
+  border-radius:8px;
+  font-weight:bold;
+  z-index:10;
 }
 
 #switchBtn{
-bottom:20px;
-background:#00ffff;
-color:black;
+  bottom:20px;
+  background:#00ffff;
+  color:black;
 }
 
 #vrBtn{
-bottom:80px;
-background:#ff44ff;
-color:white;
+  bottom:80px;
+  background:#ff44ff;
+  color:white;
 }
-
 </style>
 </head>
 
@@ -55,282 +54,159 @@ color:white;
 <button id="vrBtn">VR Mode</button>
 
 <script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
 
-const video = document.getElementById("video")
-const canvas = document.getElementById("canvas")
-const ctx = canvas.getContext("2d")
+const switchBtn = document.getElementById("switchBtn");
+const vrBtn = document.getElementById("vrBtn");
 
-const switchBtn = document.getElementById("switchBtn")
-const vrBtn = document.getElementById("vrBtn")
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
-canvas.width = window.innerWidth
-canvas.height = window.innerHeight
+const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+if(!isMobile) switchBtn.style.display="none";
 
-const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-
-if(!isMobile){
-switchBtn.style.display="none"
-}
-
-// attempt landscape on mobile
-if(isMobile && screen.orientation){
-screen.orientation.lock("landscape").catch(()=>{})
-}
-
-let currentFacing="user"
-let stream=null
-
-let zoom=1
-let lastSpread=0
-
-let vrMode=false
-
-let smoothedLandmarks=null
+let currentFacing = "user";
+let stream = null;
+let zoom = 1;
+let lastSpread = 0;
+let vrMode = false;
+let smoothedLandmarks = null;
 
 function distance(a,b){
-
-return Math.sqrt(
-Math.pow(a.x-b.x,2)+
-Math.pow(a.y-b.y,2)
-)
-
+  return Math.sqrt(Math.pow(a.x-b.x,2)+Math.pow(a.y-b.y,2));
 }
 
+// Initialize MediaPipe Hands
 const hands = new Hands({
-
-locateFile:(file)=>{
-return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-}
-
-})
+  locateFile:(file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+});
 
 hands.setOptions({
-
-maxNumHands:1,
-modelComplexity:1,
-minDetectionConfidence:0.6,
-minTrackingConfidence:0.6
-
-})
+  maxNumHands:1,
+  modelComplexity:1,
+  minDetectionConfidence:0.6,
+  minTrackingConfidence:0.6
+});
 
 hands.onResults(results=>{
+  ctx.clearRect(0,0,canvas.width,canvas.height);
 
-ctx.clearRect(0,0,canvas.width,canvas.height)
+  ctx.save();
+  ctx.translate(canvas.width/2,canvas.height/2);
+  ctx.scale(zoom,zoom);
+  ctx.translate(-canvas.width/2,-canvas.height/2);
 
-ctx.save()
+  if(!vrMode){
+    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+  }else{
+    const half=canvas.width/2;
+    ctx.drawImage(video,0,0,half,canvas.height); // left eye
+    ctx.drawImage(video,half,0,half,canvas.height); // right eye
+  }
+  ctx.restore();
 
-ctx.translate(canvas.width/2,canvas.height/2)
-ctx.scale(zoom,zoom)
-ctx.translate(-canvas.width/2,-canvas.height/2)
+  if(results.multiHandLandmarks.length){
+    const raw = results.multiHandLandmarks[0];
 
-if(!vrMode){
+    if(!smoothedLandmarks) smoothedLandmarks = raw;
+    const smoothFactor = 0.6;
+    smoothedLandmarks = raw.map((p,i)=>({
+      x: smoothedLandmarks[i].x*smoothFactor + p.x*(1-smoothFactor),
+      y: smoothedLandmarks[i].y*smoothFactor + p.y*(1-smoothFactor),
+      z: p.z
+    }));
+    const hand = smoothedLandmarks;
 
-ctx.drawImage(video,0,0,canvas.width,canvas.height)
+    const thumb=hand[4], index=hand[8], middle=hand[12], ring=hand[16], pinky=hand[20];
+    const spread=distance(index,pinky)+distance(thumb,middle);
 
-}else{
+    if(lastSpread!==0){
+      if(spread>lastSpread+0.02) zoom+=0.03;
+      if(spread<lastSpread-0.02) zoom-=0.03;
+      zoom=Math.max(1,Math.min(2.5,zoom));
+    }
+    lastSpread=spread;
 
-const half=canvas.width/2
+    const palmFacingCamera = hand[9].z < hand[0].z;
+    const tips=[thumb,index,middle,ring,pinky];
 
-ctx.drawImage(video,0,0,half,canvas.height)
-ctx.drawImage(video,half,0,half,canvas.height)
-
-}
-
-ctx.restore()
-
-if(results.multiHandLandmarks.length){
-
-const raw=results.multiHandLandmarks[0]
-
-if(!smoothedLandmarks){
-smoothedLandmarks=raw
-}
-
-const smoothFactor=0.6
-
-smoothedLandmarks=raw.map((p,i)=>({
-
-x: smoothedLandmarks[i].x*smoothFactor + p.x*(1-smoothFactor),
-y: smoothedLandmarks[i].y*smoothFactor + p.y*(1-smoothFactor),
-z: p.z
-
-}))
-
-const hand=smoothedLandmarks
-
-const thumb=hand[4]
-const index=hand[8]
-const middle=hand[12]
-const ring=hand[16]
-const pinky=hand[20]
-
-const spread=
-distance(index,pinky)+
-distance(thumb,middle)
-
-if(lastSpread!==0){
-
-if(spread>lastSpread+0.02){
-zoom+=0.03
-}
-
-if(spread<lastSpread-0.02){
-zoom-=0.03
-}
-
-zoom=Math.max(1,Math.min(2.5,zoom))
-
-}
-
-lastSpread=spread
-
-const palmFacingCamera =
-hand[9].z < hand[0].z
-
-const tips=[thumb,index,middle,ring,pinky]
-
-for(let p of tips){
-
-ctx.beginPath()
-
-ctx.arc(
-p.x*canvas.width,
-p.y*canvas.height,
-10,
-0,
-Math.PI*2
-)
-
-ctx.fillStyle = palmFacingCamera ? "#00ff88" : "#ff8800"
-
-ctx.fill()
-
-}
-
-}
-
-})
+    for(let p of tips){
+      ctx.beginPath();
+      ctx.arc(p.x*canvas.width,p.y*canvas.height,10,0,Math.PI*2);
+      ctx.fillStyle = palmFacingCamera ? "#00ff88" : "#ff8800";
+      ctx.fill();
+    }
+  }
+});
 
 async function startCamera(){
+  if(stream) stream.getTracks().forEach(track=>track.stop());
 
-if(stream){
-stream.getTracks().forEach(track=>track.stop())
-}
+  stream = await navigator.mediaDevices.getUserMedia({
+    video:{
+      facingMode:currentFacing,
+      width:isMobile?480:1280,
+      height:isMobile?360:720
+    },
+    audio:false
+  });
 
-stream = await navigator.mediaDevices.getUserMedia({
-
-video:{
-facingMode:currentFacing,
-width: isMobile ? 480 : 1280,
-height: isMobile ? 360 : 720
-},
-audio:false
-
-})
-
-video.srcObject=stream
-
-video.onloadedmetadata=()=>{
-video.play()
-}
-
+  video.srcObject=stream;
+  await video.play();
 }
 
 async function processFrame(){
-
-if(video.readyState>=2){
-await hands.send({image:video})
-}
-
-requestAnimationFrame(processFrame)
-
+  if(video.readyState>=2){
+    await hands.send({image:video});
+  }
+  requestAnimationFrame(processFrame);
 }
 
 switchBtn.onclick=async()=>{
+  currentFacing = currentFacing==="user" ? "environment" : "user";
+  await startCamera();
+}
 
-currentFacing =
-currentFacing==="user"
-? "environment"
-: "user"
+// Force fullscreen + landscape on VR
+async function enterVRMode(){
+  try{
+    if(document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+    if(screen.orientation && screen.orientation.lock) await screen.orientation.lock("landscape");
+  }catch(e){
+    console.log("Fullscreen/landscape failed:", e);
+  }
+  // resize canvas
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
 
-await startCamera()
-
+async function exitVRMode(){
+  try{
+    if(document.fullscreenElement) await document.exitFullscreen();
+  }catch(e){}
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
 }
 
 vrBtn.onclick = async ()=>{
-
-vrMode = !vrMode
-
-if(vrMode){
-  vrBtn.innerText = "Exit VR"
-
-  // 1️⃣ Enter fullscreen
-  if(document.documentElement.requestFullscreen){
-    await document.documentElement.requestFullscreen()
+  vrMode = !vrMode;
+  if(vrMode){
+    vrBtn.innerText = "Exit VR";
+    await enterVRMode();
+  }else{
+    vrBtn.innerText = "VR Mode";
+    await exitVRMode();
   }
-
-  // 2️⃣ Lock to landscape if possible
-  if(screen.orientation && screen.orientation.lock){
-    try{
-      await screen.orientation.lock("landscape")
-    }catch(e){
-      console.log("Landscape lock failed:", e)
-    }
-  }
-
-  // 3️⃣ Resize canvas to fill screen
-  canvas.width = window.innerWidth
-  canvas.height = window.innerHeight
-
-}else{
-  vrBtn.innerText = "VR Mode"
-
-  // Exit fullscreen
-  if(document.fullscreenElement){
-    await document.exitFullscreen()
-  }
-
-  // Resize canvas back (optional)
-  canvas.width = window.innerWidth
-  canvas.height = window.innerHeight
-}
-
-}
-
 }
 
 async function init(){
-
-await startCamera()
-processFrame()
-
+  await startCamera();
+  processFrame();
 }
 
-init()
-
-async function forceLandscape(){
-
-if(!isMobile) return
-
-try{
-
-if(document.documentElement.requestFullscreen){
-await document.documentElement.requestFullscreen()
-}
-
-if(screen.orientation && screen.orientation.lock){
-await screen.orientation.lock("landscape")
-}
-
-}catch(e){
-console.log("Landscape lock failed:", e)
-}
-
-}
-
+init();
 </script>
-
 </body>
 </html>
-
-
