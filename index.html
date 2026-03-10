@@ -2,46 +2,51 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Finger-Centered Crop Zoom VR</title>
+<title>Cyberpunk Hand Zoom Camera</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
 <style>
 body{
-  margin:0;
-  overflow:hidden;
-  background:black;
+margin:0;
+overflow:hidden;
+background:black;
 }
+
 canvas{
-  position:absolute;
-  top:0;
-  left:0;
+position:absolute;
+top:0;
+left:0;
 }
+
 button{
-  position:absolute;
-  left:50%;
-  transform:translateX(-50%);
-  padding:12px 20px;
-  font-size:16px;
-  border:none;
-  border-radius:8px;
-  font-weight:bold;
-  z-index:10;
+position:absolute;
+left:50%;
+transform:translateX(-50%);
+padding:12px 20px;
+font-size:16px;
+border:none;
+border-radius:8px;
+font-weight:bold;
+z-index:10;
 }
+
 #switchBtn{
-  bottom:20px;
-  background:#00ffff;
-  color:black;
+bottom:20px;
+background:#00ffff;
+color:black;
 }
+
 #vrBtn{
-  bottom:80px;
-  background:#ff44ff;
-  color:white;
+bottom:80px;
+background:#ff44ff;
+color:white;
 }
 </style>
 </head>
 
 <body>
+
 <video id="video" autoplay playsinline style="display:none"></video>
 <canvas id="canvas"></canvas>
 
@@ -49,185 +54,274 @@ button{
 <button id="vrBtn">VR Mode</button>
 
 <script>
-const video = document.getElementById("video");
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
-const switchBtn = document.getElementById("switchBtn");
-const vrBtn = document.getElementById("vrBtn");
 
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+const video = document.getElementById("video")
+const canvas = document.getElementById("canvas")
+const ctx = canvas.getContext("2d")
 
-const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-if(!isMobile) switchBtn.style.display="none";
+const switchBtn = document.getElementById("switchBtn")
+const vrBtn = document.getElementById("vrBtn")
 
-let currentFacing = "user";
-let stream = null;
-let zoom = 1;
-let lastSpread = 0;
-let vrMode = false;
-let smoothedLandmarks = null;
+canvas.width = window.innerWidth
+canvas.height = window.innerHeight
 
-// Distance helper
+const isMobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+if(!isMobile) switchBtn.style.display="none"
+
+let currentFacing="user"
+let stream=null
+let zoom=1
+let lastSpread=0
+let vrMode=false
+let smoothedLandmarks=null
+
 function distance(a,b){
-  return Math.sqrt(Math.pow(a.x-b.x,2)+Math.pow(a.y-b.y,2));
+return Math.sqrt((a.x-b.x)**2+(a.y-b.y)**2)
 }
 
-// Static effect function
-function drawStaticEffect(ctx, width, height, intensity=0.05){
-    const imageData = ctx.getImageData(0,0,width,height);
-    const data = imageData.data;
-    const totalPixels = width*height;
-    for(let i=0;i<totalPixels;i++){
-        if(Math.random()<intensity){
-            const idx = i*4;
-            const shade = Math.random()*255;
-            data[idx] = shade;
-            data[idx+1] = shade;
-            data[idx+2] = shade;
-        }
-    }
-    ctx.putImageData(imageData,0,0);
+function cyberpunkZoomEffect(){
+
+ctx.save()
+
+const width=canvas.width
+const height=canvas.height
+
+const shift=3
+
+ctx.globalAlpha=0.35
+ctx.drawImage(canvas,shift,0)
+
+ctx.globalCompositeOperation="lighter"
+ctx.drawImage(canvas,-shift,0)
+
+ctx.globalCompositeOperation="source-over"
+ctx.globalAlpha=0.25
+
+for(let y=0;y<height;y+=4){
+ctx.fillStyle="black"
+ctx.fillRect(0,y,width,1)
 }
 
-// Initialize MediaPipe Hands
-const hands = new Hands({locateFile:(file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+for(let i=0;i<140;i++){
+const x=Math.random()*width
+const y=Math.random()*height
+const w=Math.random()*3
+const h=Math.random()*3
+ctx.fillStyle="white"
+ctx.fillRect(x,y,w,h)
+}
+
+ctx.restore()
+
+}
+
+const hands=new Hands({
+locateFile:(file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+})
+
 hands.setOptions({
-  maxNumHands:1,
-  modelComplexity:1,
-  minDetectionConfidence:0.6,
-  minTrackingConfidence:0.6
-});
+maxNumHands:1,
+modelComplexity:1,
+minDetectionConfidence:0.6,
+minTrackingConfidence:0.6
+})
 
 hands.onResults(results=>{
-  ctx.clearRect(0,0,canvas.width,canvas.height);
 
-  let zooming = false;
-  let fingerX = video.videoWidth/2;
-  let fingerY = video.videoHeight/2;
+ctx.clearRect(0,0,canvas.width,canvas.height)
 
-  if(results.multiHandLandmarks.length){
-    const raw = results.multiHandLandmarks[0];
-    if(!smoothedLandmarks) smoothedLandmarks = raw;
-    const smoothFactor=0.6;
-    smoothedLandmarks = raw.map((p,i)=>({
-      x: smoothedLandmarks[i].x*smoothFactor + p.x*(1-smoothFactor),
-      y: smoothedLandmarks[i].y*smoothFactor + p.y*(1-smoothFactor),
-      z: p.z
-    }));
-    const hand = smoothedLandmarks;
+let zooming=false
+let fingerX=video.videoWidth/2
+let fingerY=video.videoHeight/2
 
-    const thumb=hand[4], index=hand[8], middle=hand[12], ring=hand[16], pinky=hand[20];
-    const tips=[thumb,index,middle,ring,pinky];
+if(results.multiHandLandmarks.length){
 
-    // Finger spread zoom
-    const spread = distance(index,pinky)+distance(thumb,middle);
-    if(lastSpread!==0){
-      if(spread>lastSpread+0.02){ zoom+=0.08; zooming=true; }
-      if(spread<lastSpread-0.02){ zoom-=0.08; zooming=true; }
-      zoom = Math.max(1, Math.min(6.5, zoom));
-    }
-    lastSpread = spread;
+const raw=results.multiHandLandmarks[0]
 
-    // Compute average fingertip position
-    let avgX=0, avgY=0;
-    for(let p of tips){ avgX+=p.x; avgY+=p.y; }
-    avgX/=tips.length;
-    avgY/=tips.length;
+if(!smoothedLandmarks) smoothedLandmarks=raw
 
-    fingerX = avgX*video.videoWidth;
-    fingerY = avgY*video.videoHeight;
+const smoothFactor=0.6
 
-    // Static effect only while zooming
-    if(zooming){
-      const staticIntensity = Math.min(Math.abs(spread-lastSpread)/0.1, 0.2);
-      const flicker = Math.random()*0.1;
-      drawStaticEffect(ctx, canvas.width, canvas.height, staticIntensity+flicker);
-    }
+smoothedLandmarks=raw.map((p,i)=>({
 
-    // Draw fingertip circles
-    const palmFacingCamera = hand[9].z < hand[0].z;
-    for(let p of tips){
-      ctx.beginPath();
-      ctx.arc(p.x*canvas.width,p.y*canvas.height,10,0,Math.PI*2);
-      ctx.fillStyle = palmFacingCamera ? "#00ff88" : "#ff8800";
-      ctx.fill();
-    }
-  }
+x: smoothedLandmarks[i].x*smoothFactor+p.x*(1-smoothFactor),
+y: smoothedLandmarks[i].y*smoothFactor+p.y*(1-smoothFactor),
+z: p.z
 
-  // --- Draw video using crop + scale centered on finger ---
-  const zoomFactor = zoom;
-  const cropW = video.videoWidth/zoomFactor;
-  const cropH = video.videoHeight/zoomFactor;
-  let cropX = fingerX - cropW/2;
-  let cropY = fingerY - cropH/2;
-  cropX = Math.max(0, Math.min(cropX, video.videoWidth - cropW));
-  cropY = Math.max(0, Math.min(cropY, video.videoHeight - cropH));
+}))
 
-  if(!vrMode){
-    ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
-  }else{
-    const half = canvas.width/2;
-    ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, half, canvas.height);
-    ctx.drawImage(video, cropX, cropY, cropW, cropH, half, 0, half, canvas.height);
-  }
+const hand=smoothedLandmarks
 
-});
+const thumb=hand[4]
+const index=hand[8]
+const middle=hand[12]
+const ring=hand[16]
+const pinky=hand[20]
 
-// --- Camera setup ---
+const tips=[thumb,index,middle,ring,pinky]
+
+const spread=distance(index,pinky)+distance(thumb,middle)
+
+if(lastSpread!==0){
+
+if(spread>lastSpread+0.02){
+zoom+=0.08
+zooming=true
+}
+
+if(spread<lastSpread-0.02){
+zoom-=0.08
+zooming=true
+}
+
+zoom=Math.max(1,Math.min(6.5,zoom))
+
+}
+
+lastSpread=spread
+
+let avgX=0
+let avgY=0
+
+for(let p of tips){
+avgX+=p.x
+avgY+=p.y
+}
+
+avgX/=tips.length
+avgY/=tips.length
+
+fingerX=avgX*video.videoWidth
+fingerY=avgY*video.videoHeight
+
+const palmFacing=hand[9].z<hand[0].z
+
+for(let p of tips){
+ctx.beginPath()
+ctx.arc(p.x*canvas.width,p.y*canvas.height,10,0,Math.PI*2)
+ctx.fillStyle=palmFacing?"#00ff88":"#ff8800"
+ctx.fill()
+}
+
+}
+
+const zoomFactor=zoom
+
+const cropW=video.videoWidth/zoomFactor
+const cropH=video.videoHeight/zoomFactor
+
+let cropX=fingerX-cropW/2
+let cropY=fingerY-cropH/2
+
+cropX=Math.max(0,Math.min(cropX,video.videoWidth-cropW))
+cropY=Math.max(0,Math.min(cropY,video.videoHeight-cropH))
+
+if(!vrMode){
+
+ctx.drawImage(video,cropX,cropY,cropW,cropH,0,0,canvas.width,canvas.height)
+
+}else{
+
+const half=canvas.width/2
+
+ctx.drawImage(video,cropX,cropY,cropW,cropH,0,0,half,canvas.height)
+ctx.drawImage(video,cropX,cropY,cropW,cropH,half,0,half,canvas.height)
+
+}
+
+if(zooming){
+cyberpunkZoomEffect()
+}
+
+})
+
 async function startCamera(){
-  if(stream) stream.getTracks().forEach(track=>track.stop());
-  stream = await navigator.mediaDevices.getUserMedia({
-    video:{facingMode:currentFacing, width:isMobile?480:1280, height:isMobile?360:720},
-    audio:false
-  });
-  video.srcObject=stream;
-  await video.play();
+
+if(stream) stream.getTracks().forEach(track=>track.stop())
+
+stream=await navigator.mediaDevices.getUserMedia({
+video:{
+facingMode:currentFacing,
+width:isMobile?480:1280,
+height:isMobile?360:720
+},
+audio:false
+})
+
+video.srcObject=stream
+await video.play()
+
 }
 
 async function processFrame(){
-  if(video.readyState>=2) await hands.send({image:video});
-  requestAnimationFrame(processFrame);
+
+if(video.readyState>=2){
+await hands.send({image:video})
+}
+
+requestAnimationFrame(processFrame)
+
 }
 
 switchBtn.onclick=async()=>{
-  currentFacing = currentFacing==="user"?"environment":"user";
-  await startCamera();
+
+currentFacing=currentFacing==="user"?"environment":"user"
+await startCamera()
+
 }
 
-// VR + fullscreen + landscape
-async function enterVRMode(){
-  try{
-    if(document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
-    if(screen.orientation && screen.orientation.lock) await screen.orientation.lock("landscape");
-  }catch(e){console.log("Fullscreen/landscape failed:", e);}
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+async function enterVR(){
+
+try{
+
+if(document.documentElement.requestFullscreen)
+await document.documentElement.requestFullscreen()
+
+if(screen.orientation && screen.orientation.lock)
+await screen.orientation.lock("landscape")
+
+}catch(e){}
+
+canvas.width=window.innerWidth
+canvas.height=window.innerHeight
+
 }
 
-async function exitVRMode(){
-  try{ if(document.fullscreenElement) await document.exitFullscreen(); }catch(e){}
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+async function exitVR(){
+
+try{
+if(document.fullscreenElement)
+await document.exitFullscreen()
+}catch(e){}
+
+canvas.width=window.innerWidth
+canvas.height=window.innerHeight
+
 }
 
-vrBtn.onclick = async ()=>{
-  vrMode = !vrMode;
-  if(vrMode){
-    vrBtn.innerText="Exit VR";
-    await enterVRMode();
-  }else{
-    vrBtn.innerText="VR Mode";
-    await exitVRMode();
-  }
+vrBtn.onclick=async()=>{
+
+vrMode=!vrMode
+
+if(vrMode){
+vrBtn.innerText="Exit VR"
+await enterVR()
+}else{
+vrBtn.innerText="VR Mode"
+await exitVR()
+}
+
 }
 
 async function init(){
-  await startCamera();
-  processFrame();
+
+await startCamera()
+processFrame()
+
 }
 
-init();
+init()
+
 </script>
 </body>
 </html>
