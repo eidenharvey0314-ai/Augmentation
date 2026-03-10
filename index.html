@@ -242,8 +242,8 @@ if(stream) stream.getTracks().forEach(track=>track.stop())
 stream=await navigator.mediaDevices.getUserMedia({
 video:{
 facingMode:currentFacing,
-width:isMobile?480:1280,
-height:isMobile?360:720
+width:isMobile?1920:1280,
+height:isMobile?1080:720
 },
 audio:false
 })
@@ -325,3 +325,4 @@ init()
 </script>
 </body>
 </html>
+
