@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html>
 <head>
@@ -75,6 +76,11 @@ let lastSpread=0
 let vrMode=false
 let smoothedLandmarks=null
 
+// zoom stabilizer
+let lockedFingerX=null
+let lockedFingerY=null
+let zoomLock=false
+
 function distance(a,b){
 return Math.sqrt((a.x-b.x)**2+(a.y-b.y)**2)
 }
@@ -143,11 +149,9 @@ if(!smoothedLandmarks) smoothedLandmarks=raw
 const smoothFactor=0.6
 
 smoothedLandmarks=raw.map((p,i)=>({
-
 x: smoothedLandmarks[i].x*smoothFactor+p.x*(1-smoothFactor),
 y: smoothedLandmarks[i].y*smoothFactor+p.y*(1-smoothFactor),
 z: p.z
-
 }))
 
 const hand=smoothedLandmarks
@@ -191,8 +195,26 @@ avgY+=p.y
 avgX/=tips.length
 avgY/=tips.length
 
-fingerX=avgX*video.videoWidth
-fingerY=avgY*video.videoHeight
+const currentFingerX=avgX*video.videoWidth
+const currentFingerY=avgY*video.videoHeight
+
+if(zooming && !zoomLock){
+lockedFingerX=currentFingerX
+lockedFingerY=currentFingerY
+zoomLock=true
+}
+
+if(!zooming){
+zoomLock=false
+}
+
+if(zoomLock){
+fingerX=lockedFingerX
+fingerY=lockedFingerY
+}else{
+fingerX=currentFingerX
+fingerY=currentFingerY
+}
 
 const palmFacing=hand[9].z<hand[0].z
 
@@ -242,8 +264,8 @@ if(stream) stream.getTracks().forEach(track=>track.stop())
 stream=await navigator.mediaDevices.getUserMedia({
 video:{
 facingMode:currentFacing,
-width:isMobile?480:1280,
-height:isMobile?360:720
+width:isMobile?640:1280,
+height:isMobile?480:720
 },
 audio:false
 })
@@ -264,22 +286,18 @@ requestAnimationFrame(processFrame)
 }
 
 switchBtn.onclick=async()=>{
-
 currentFacing=currentFacing==="user"?"environment":"user"
 await startCamera()
-
 }
 
 async function enterVR(){
 
 try{
-
 if(document.documentElement.requestFullscreen)
 await document.documentElement.requestFullscreen()
 
 if(screen.orientation && screen.orientation.lock)
 await screen.orientation.lock("landscape")
-
 }catch(e){}
 
 canvas.width=window.innerWidth
@@ -314,10 +332,8 @@ await exitVR()
 }
 
 async function init(){
-
 await startCamera()
 processFrame()
-
 }
 
 init()
@@ -325,3 +341,4 @@ init()
 </script>
 </body>
 </html>
+```
