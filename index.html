@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Resolution Update Cyberpunk Hand Zoom Camera</title>
+<meta charset="UTF-8">
+<title>Hand Tracking</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
 <style>
 body{
@@ -13,317 +15,78 @@ overflow:hidden;
 background:black;
 }
 
+video{
+display:none;
+}
+
 canvas{
 position:absolute;
 top:0;
 left:0;
-}
-
-button{
-position:absolute;
-left:50%;
-transform:translateX(-50%);
-padding:12px 20px;
-font-size:16px;
-border:none;
-border-radius:8px;
-font-weight:bold;
-z-index:10;
-}
-
-#switchBtn{
-bottom:20px;
-background:#00ffff;
-color:black;
-}
-
-#vrBtn{
-bottom:80px;
-background:#ff44ff;
-color:white;
+width:100vw;
+height:100vh;
 }
 </style>
 </head>
 
 <body>
 
-<video id="video" autoplay playsinline style="display:none"></video>
+<video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
-
-<button id="switchBtn">Switch Camera</button>
-<button id="vrBtn">VR Mode</button>
 
 <script>
 
-const video = document.getElementById("video")
-const canvas = document.getElementById("canvas")
-const ctx = canvas.getContext("2d")
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
 
-const switchBtn = document.getElementById("switchBtn")
-const vrBtn = document.getElementById("vrBtn")
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
-canvas.width = window.innerWidth
-canvas.height = window.innerHeight
-
-const isMobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-if(!isMobile) switchBtn.style.display="none"
-
-let currentFacing="user"
-let stream=null
-let zoom=1
-let lastSpread=0
-let vrMode=false
-let smoothedLandmarks=null
-
-function distance(a,b){
-return Math.sqrt((a.x-b.x)**2+(a.y-b.y)**2)
+const hands = new Hands({
+locateFile: file => {
+return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
 }
-
-function cyberpunkZoomEffect(){
-
-ctx.save()
-
-const width=canvas.width
-const height=canvas.height
-
-const shift=3
-
-ctx.globalAlpha=0.35
-ctx.drawImage(canvas,shift,0)
-
-ctx.globalCompositeOperation="lighter"
-ctx.drawImage(canvas,-shift,0)
-
-ctx.globalCompositeOperation="source-over"
-ctx.globalAlpha=0.25
-
-for(let y=0;y<height;y+=4){
-ctx.fillStyle="black"
-ctx.fillRect(0,y,width,1)
-}
-
-for(let i=0;i<140;i++){
-const x=Math.random()*width
-const y=Math.random()*height
-const w=Math.random()*3
-const h=Math.random()*3
-ctx.fillStyle="white"
-ctx.fillRect(x,y,w,h)
-}
-
-ctx.restore()
-
-}
-
-const hands=new Hands({
-locateFile:(file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-})
+});
 
 hands.setOptions({
-maxNumHands:1,
-modelComplexity:1,
-minDetectionConfidence:0.6,
-minTrackingConfidence:0.6
-})
+maxNumHands: 2,
+modelComplexity: 1,
+minDetectionConfidence: 0.7,
+minTrackingConfidence: 0.7
+});
 
-hands.onResults(results=>{
+hands.onResults(results => {
 
-ctx.clearRect(0,0,canvas.width,canvas.height)
+ctx.clearRect(0,0,canvas.width,canvas.height);
 
-let zooming=false
-let fingerX=video.videoWidth/2
-let fingerY=video.videoHeight/2
+if(results.multiHandLandmarks){
 
-if(results.multiHandLandmarks.length){
+for(const landmarks of results.multiHandLandmarks){
 
-const raw=results.multiHandLandmarks[0]
+drawConnectors(ctx, landmarks, HAND_CONNECTIONS,
+{color:"#00FFAA", lineWidth:3});
 
-if(!smoothedLandmarks) smoothedLandmarks=raw
+drawLandmarks(ctx, landmarks,
+{color:"#FF0066", lineWidth:2});
 
-const smoothFactor=0.6
-
-smoothedLandmarks=raw.map((p,i)=>({
-
-x: smoothedLandmarks[i].x*smoothFactor+p.x*(1-smoothFactor),
-y: smoothedLandmarks[i].y*smoothFactor+p.y*(1-smoothFactor),
-z: p.z
-
-}))
-
-const hand=smoothedLandmarks
-
-const thumb=hand[4]
-const index=hand[8]
-const middle=hand[12]
-const ring=hand[16]
-const pinky=hand[20]
-
-const tips=[thumb,index,middle,ring,pinky]
-
-const spread=distance(index,pinky)+distance(thumb,middle)
-
-if(lastSpread!==0){
-
-if(spread>lastSpread+0.02){
-zoom+=0.08
-zooming=true
-}
-
-if(spread<lastSpread-0.02){
-zoom-=0.08
-zooming=true
-}
-
-zoom=Math.max(1,Math.min(6.5,zoom))
-
-}
-
-lastSpread=spread
-
-let avgX=0
-let avgY=0
-
-for(let p of tips){
-avgX+=p.x
-avgY+=p.y
-}
-
-avgX/=tips.length
-avgY/=tips.length
-
-fingerX=avgX*video.videoWidth
-fingerY=avgY*video.videoHeight
-
-const palmFacing=hand[9].z<hand[0].z
-
-for(let p of tips){
-ctx.beginPath()
-ctx.arc(p.x*canvas.width,p.y*canvas.height,10,0,Math.PI*2)
-ctx.fillStyle=palmFacing?"#00ff88":"#ff8800"
-ctx.fill()
 }
 
 }
 
-const zoomFactor=zoom
+});
 
-const cropW=video.videoWidth/zoomFactor
-const cropH=video.videoHeight/zoomFactor
-
-let cropX=fingerX-cropW/2
-let cropY=fingerY-cropH/2
-
-cropX=Math.max(0,Math.min(cropX,video.videoWidth-cropW))
-cropY=Math.max(0,Math.min(cropY,video.videoHeight-cropH))
-
-if(!vrMode){
-
-ctx.drawImage(video,cropX,cropY,cropW,cropH,0,0,canvas.width,canvas.height)
-
-}else{
-
-const half=canvas.width/2
-
-ctx.drawImage(video,cropX,cropY,cropW,cropH,0,0,half,canvas.height)
-ctx.drawImage(video,cropX,cropY,cropW,cropH,half,0,half,canvas.height)
-
-}
-
-if(zooming){
-cyberpunkZoomEffect()
-}
-
-})
-
-async function startCamera(){
-
-if(stream) stream.getTracks().forEach(track=>track.stop())
-
-stream=await navigator.mediaDevices.getUserMedia({
-video:{
-facingMode:currentFacing,
-width:isMobile?1920:1280,
-height:isMobile?1080:720
+const camera = new Camera(video,{
+onFrame: async () => {
+await hands.send({image: video});
 },
-audio:false
-})
+width:1280,
+height:720
+});
 
-video.srcObject=stream
-await video.play()
-
-}
-
-async function processFrame(){
-
-if(video.readyState>=2){
-await hands.send({image:video})
-}
-
-requestAnimationFrame(processFrame)
-
-}
-
-switchBtn.onclick=async()=>{
-
-currentFacing=currentFacing==="user"?"environment":"user"
-await startCamera()
-
-}
-
-async function enterVR(){
-
-try{
-
-if(document.documentElement.requestFullscreen)
-await document.documentElement.requestFullscreen()
-
-if(screen.orientation && screen.orientation.lock)
-await screen.orientation.lock("landscape")
-
-}catch(e){}
-
-canvas.width=window.innerWidth
-canvas.height=window.innerHeight
-
-}
-
-async function exitVR(){
-
-try{
-if(document.fullscreenElement)
-await document.exitFullscreen()
-}catch(e){}
-
-canvas.width=window.innerWidth
-canvas.height=window.innerHeight
-
-}
-
-vrBtn.onclick=async()=>{
-
-vrMode=!vrMode
-
-if(vrMode){
-vrBtn.innerText="Exit VR"
-await enterVR()
-}else{
-vrBtn.innerText="VR Mode"
-await exitVR()
-}
-
-}
-
-async function init(){
-
-await startCamera()
-processFrame()
-
-}
-
-init()
+camera.start();
 
 </script>
+
 </body>
 </html>
-
-
