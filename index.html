@@ -1,8 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
+
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>UPD 0.1 Cyberpunk Hand Zoom Camera</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+
+<title>Cyberpunk Hand Zoom Camera</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
@@ -65,25 +68,29 @@ color:white;
 
 <script>
 
-const video = document.getElementById("video")
-const canvas = document.getElementById("canvas")
-const ctx = canvas.getContext("2d")
+const video=document.getElementById("video")
+const canvas=document.getElementById("canvas")
+const ctx=canvas.getContext("2d")
 
-const switchBtn = document.getElementById("switchBtn")
-const vrBtn = document.getElementById("vrBtn")
-const uiBtn = document.getElementById("uiBtn")
-
-canvas.width = window.innerWidth
-canvas.height = window.innerHeight
+const switchBtn=document.getElementById("switchBtn")
+const vrBtn=document.getElementById("vrBtn")
+const uiBtn=document.getElementById("uiBtn")
 
 const isMobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+const isiPhone=/iPhone/i.test(navigator.userAgent)
+
 if(!isMobile) switchBtn.style.display="none"
+
+canvas.width=window.innerWidth
+canvas.height=window.innerHeight
 
 let currentFacing="environment"
 let stream=null
+
 let zoom=1
 let lastSpread=0
 let vrMode=false
+
 let smoothedLandmarks=null
 
 let lockedFingerX=null
@@ -95,9 +102,30 @@ let uiHidden=false
 let ultraWideId=null
 let normalCamId=null
 
+
+function resizeCanvas(){
+
+canvas.width=window.innerWidth
+canvas.height=window.innerHeight
+
+if(isiPhone && window.innerHeight>window.innerWidth){
+
+canvas.style.transform="rotate(90deg)"
+canvas.style.transformOrigin="center"
+
+}else{
+
+canvas.style.transform="none"
+
+}
+
+}
+
+
 function distance(a,b){
 return Math.sqrt((a.x-b.x)**2+(a.y-b.y)**2)
 }
+
 
 function cyberpunkZoomEffect(){
 
@@ -106,37 +134,32 @@ ctx.save()
 const width=canvas.width
 const height=canvas.height
 
-const shift=3
-
 ctx.globalAlpha=0.35
-ctx.drawImage(canvas,shift,0)
+ctx.drawImage(canvas,3,0)
 
 ctx.globalCompositeOperation="lighter"
-ctx.drawImage(canvas,-shift,0)
+ctx.drawImage(canvas,-3,0)
 
 ctx.globalCompositeOperation="source-over"
-ctx.globalAlpha=0.25
 
 for(let y=0;y<height;y+=4){
 ctx.fillStyle="black"
 ctx.fillRect(0,y,width,1)
 }
 
-for(let i=0;i<120;i++){
-const x=Math.random()*width
-const y=Math.random()*height
+for(let i=0;i<100;i++){
 ctx.fillStyle="white"
-ctx.fillRect(x,y,2,2)
+ctx.fillRect(Math.random()*width,Math.random()*height,2,2)
 }
 
 ctx.restore()
 
 }
 
+
 function applyLensDistortion(){
 
 const strength=0.15
-
 const w=canvas.width
 const h=canvas.height
 
@@ -146,13 +169,14 @@ ctx.translate(-w/2,-h/2)
 
 }
 
+
 async function detectCameras(){
 
 const devices=await navigator.mediaDevices.enumerateDevices()
 
-const videoDevices=devices.filter(d=>d.kind==="videoinput")
+const videos=devices.filter(d=>d.kind==="videoinput")
 
-videoDevices.forEach(d=>{
+videos.forEach(d=>{
 
 const name=d.label.toLowerCase()
 
@@ -166,9 +190,11 @@ normalCamId=d.deviceId
 
 }
 
+
 const hands=new Hands({
 locateFile:(file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
 })
+
 
 hands.setOptions({
 maxNumHands:1,
@@ -176,6 +202,7 @@ modelComplexity:1,
 minDetectionConfidence:0.6,
 minTrackingConfidence:0.6
 })
+
 
 hands.onResults(results=>{
 
@@ -194,8 +221,8 @@ if(!smoothedLandmarks) smoothedLandmarks=raw
 const smoothFactor=0.6
 
 smoothedLandmarks=raw.map((p,i)=>({
-x: smoothedLandmarks[i].x*smoothFactor+p.x*(1-smoothFactor),
-y: smoothedLandmarks[i].y*smoothFactor+p.y*(1-smoothFactor),
+x:smoothedLandmarks[i].x*smoothFactor+p.x*(1-smoothFactor),
+y:smoothedLandmarks[i].y*smoothFactor+p.y*(1-smoothFactor),
 z:p.z
 }))
 
@@ -263,6 +290,7 @@ fingerY=currentFingerY
 
 }
 
+
 const cropW=video.videoWidth/zoom
 const cropH=video.videoHeight/zoom
 
@@ -271,6 +299,7 @@ let cropY=fingerY-cropH/2
 
 cropX=Math.max(0,Math.min(cropX,video.videoWidth-cropW))
 cropY=Math.max(0,Math.min(cropY,video.videoHeight-cropH))
+
 
 if(!vrMode){
 
@@ -295,15 +324,15 @@ ctx.fillRect(half-2,0,4,canvas.height)
 
 }
 
-if(zooming){
-cyberpunkZoomEffect()
-}
+
+if(zooming) cyberpunkZoomEffect()
 
 })
 
+
 async function startCamera(){
 
-if(stream) stream.getTracks().forEach(track=>track.stop())
+if(stream) stream.getTracks().forEach(t=>t.stop())
 
 let videoOptions
 
@@ -335,6 +364,7 @@ await video.play()
 
 }
 
+
 async function processFrame(){
 
 if(video.readyState>=2){
@@ -345,44 +375,68 @@ requestAnimationFrame(processFrame)
 
 }
 
+
 switchBtn.onclick=async()=>{
 currentFacing=currentFacing==="user"?"environment":"user"
 await startCamera()
 }
 
+
 async function enterVR(){
 
 try{
 
-if(document.documentElement.requestFullscreen)
+if(document.documentElement.requestFullscreen){
 await document.documentElement.requestFullscreen()
+}
 
-if(screen.orientation && screen.orientation.lock)
+if(screen.orientation && screen.orientation.lock){
 await screen.orientation.lock("landscape")
+}
 
 }catch(e){}
 
-canvas.width=window.innerWidth
-canvas.height=window.innerHeight
+if(isiPhone){
+
+document.body.style.position="fixed"
+document.body.style.width="100vw"
+document.body.style.height="100vh"
+document.body.style.top="0"
+document.body.style.left="0"
 
 }
+
+resizeCanvas()
+
+}
+
 
 async function exitVR(){
 
 try{
 
-if(document.fullscreenElement)
+if(document.fullscreenElement){
 await document.exitFullscreen()
+}
 
-if(screen.orientation && screen.orientation.unlock)
+if(screen.orientation && screen.orientation.unlock){
 screen.orientation.unlock()
+}
 
 }catch(e){}
 
-canvas.width=window.innerWidth
-canvas.height=window.innerHeight
+if(isiPhone){
+
+document.body.style.position=""
+document.body.style.width=""
+document.body.style.height=""
 
 }
+
+resizeCanvas()
+
+}
+
 
 vrBtn.onclick=async()=>{
 
@@ -398,6 +452,7 @@ await exitVR()
 
 }
 
+
 uiBtn.onclick=()=>{
 
 uiHidden=true
@@ -407,6 +462,7 @@ btn.style.display="none"
 })
 
 }
+
 
 document.addEventListener("click",()=>{
 
@@ -422,10 +478,10 @@ uiHidden=false
 
 })
 
-window.addEventListener("orientationchange",()=>{
-canvas.width=window.innerWidth
-canvas.height=window.innerHeight
-})
+
+window.addEventListener("resize",resizeCanvas)
+window.addEventListener("orientationchange",resizeCanvas)
+
 
 async function init(){
 
