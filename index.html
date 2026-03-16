@@ -7,47 +7,50 @@
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
 <style>
+
 body{
-  margin:0;
-  overflow:hidden;
-  background:black;
+margin:0;
+overflow:hidden;
+background:black;
+touch-action:none;
 }
 
 canvas{
-  position:absolute;
-  top:0;
-  left:0;
+position:absolute;
+top:0;
+left:0;
 }
 
 button{
-  position:absolute;
-  left:50%;
-  transform:translateX(-50%);
-  padding:12px 20px;
-  font-size:16px;
-  border:none;
-  border-radius:8px;
-  font-weight:bold;
-  z-index:10;
+position:absolute;
+left:50%;
+transform:translateX(-50%);
+padding:12px 20px;
+font-size:16px;
+border:none;
+border-radius:8px;
+font-weight:bold;
+z-index:10;
 }
 
 #switchBtn{
-  bottom:20px;
-  background:#00ffff;
-  color:black;
+bottom:20px;
+background:#00ffff;
+color:black;
 }
 
 #vrBtn{
-  bottom:80px;
-  background:#ff44ff;
-  color:white;
+bottom:80px;
+background:#ff44ff;
+color:white;
 }
 
 #uiBtn{
-  bottom:140px;
-  background:#222;
-  color:white;
+bottom:140px;
+background:#222;
+color:white;
 }
+
 </style>
 </head>
 
@@ -83,309 +86,311 @@ let lastSpread=0
 let vrMode=false
 let smoothedLandmarks=null
 
-// zoom stabilizer
 let lockedFingerX=null
 let lockedFingerY=null
 let zoomLock=false
 
-// UI toggle
-let uiHidden = false
+let uiHidden=false
 
 function distance(a,b){
-  return Math.sqrt((a.x-b.x)**2+(a.y-b.y)**2)
+return Math.sqrt((a.x-b.x)**2+(a.y-b.y)**2)
 }
 
 function cyberpunkZoomEffect(){
 
-  ctx.save()
+ctx.save()
 
-  const width=canvas.width
-  const height=canvas.height
+const width=canvas.width
+const height=canvas.height
 
-  const shift=3
+const shift=3
 
-  ctx.globalAlpha=0.35
-  ctx.drawImage(canvas,shift,0)
+ctx.globalAlpha=0.35
+ctx.drawImage(canvas,shift,0)
 
-  ctx.globalCompositeOperation="lighter"
-  ctx.drawImage(canvas,-shift,0)
+ctx.globalCompositeOperation="lighter"
+ctx.drawImage(canvas,-shift,0)
 
-  ctx.globalCompositeOperation="source-over"
-  ctx.globalAlpha=0.25
+ctx.globalCompositeOperation="source-over"
+ctx.globalAlpha=0.25
 
-  for(let y=0;y<height;y+=4){
-    ctx.fillStyle="black"
-    ctx.fillRect(0,y,width,1)
-  }
+for(let y=0;y<height;y+=4){
+ctx.fillStyle="black"
+ctx.fillRect(0,y,width,1)
+}
 
-  for(let i=0;i<140;i++){
-    const x=Math.random()*width
-    const y=Math.random()*height
-    const w=Math.random()*3
-    const h=Math.random()*3
-    ctx.fillStyle="white"
-    ctx.fillRect(x,y,w,h)
-  }
+for(let i=0;i<140;i++){
+const x=Math.random()*width
+const y=Math.random()*height
+const w=Math.random()*3
+const h=Math.random()*3
+ctx.fillStyle="white"
+ctx.fillRect(x,y,w,h)
+}
 
-  ctx.restore()
+ctx.restore()
 
 }
 
 const hands=new Hands({
-  locateFile:(file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+locateFile:(file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
 })
 
 hands.setOptions({
-  maxNumHands:1,
-  modelComplexity:1,
-  minDetectionConfidence:0.6,
-  minTrackingConfidence:0.6
+maxNumHands:1,
+modelComplexity:1,
+minDetectionConfidence:0.6,
+minTrackingConfidence:0.6
 })
 
 hands.onResults(results=>{
 
-  ctx.clearRect(0,0,canvas.width,canvas.height)
+ctx.clearRect(0,0,canvas.width,canvas.height)
 
-  let zooming=false
-  let fingerX=video.videoWidth/2
-  let fingerY=video.videoHeight/2
+let zooming=false
+let fingerX=video.videoWidth/2
+let fingerY=video.videoHeight/2
 
-  if(results.multiHandLandmarks && results.multiHandLandmarks.length){
+if(results.multiHandLandmarks && results.multiHandLandmarks.length){
 
-    const raw=results.multiHandLandmarks[0]
+const raw=results.multiHandLandmarks[0]
 
-    if(!smoothedLandmarks) smoothedLandmarks=raw
+if(!smoothedLandmarks) smoothedLandmarks=raw
 
-    const smoothFactor=0.6
+const smoothFactor=0.6
 
-    smoothedLandmarks=raw.map((p,i)=>({
-      x: smoothedLandmarks[i].x*smoothFactor+p.x*(1-smoothFactor),
-      y: smoothedLandmarks[i].y*smoothFactor+p.y*(1-smoothFactor),
-      z: p.z
-    }))
+smoothedLandmarks=raw.map((p,i)=>({
+x: smoothedLandmarks[i].x*smoothFactor+p.x*(1-smoothFactor),
+y: smoothedLandmarks[i].y*smoothFactor+p.y*(1-smoothFactor),
+z:p.z
+}))
 
-    const hand=smoothedLandmarks
+const hand=smoothedLandmarks
 
-    const thumb=hand[4]
-    const index=hand[8]
-    const middle=hand[12]
-    const ring=hand[16]
-    const pinky=hand[20]
+const thumb=hand[4]
+const index=hand[8]
+const middle=hand[12]
+const ring=hand[16]
+const pinky=hand[20]
 
-    const tips=[thumb,index,middle,ring,pinky]
+const tips=[thumb,index,middle,ring,pinky]
 
-    const spread=distance(index,pinky)+distance(thumb,middle)
+const spread=distance(index,pinky)+distance(thumb,middle)
 
-    if(lastSpread!==0){
+if(lastSpread!==0){
 
-      if(spread>lastSpread+0.02){
-        zoom+=0.08
-        zooming=true
-      }
+if(spread>lastSpread+0.02){
+zoom+=0.08
+zooming=true
+}
 
-      if(spread<lastSpread-0.02){
-        zoom-=0.08
-        zooming=true
-      }
+if(spread<lastSpread-0.02){
+zoom-=0.08
+zooming=true
+}
 
-      zoom=Math.max(1,Math.min(6.5,zoom))
+zoom=Math.max(1,Math.min(6.5,zoom))
 
-    }
+}
 
-    lastSpread=spread
+lastSpread=spread
 
-    let avgX=0
-    let avgY=0
+let avgX=0
+let avgY=0
 
-    for(let p of tips){
-      avgX+=p.x
-      avgY+=p.y
-    }
+for(let p of tips){
+avgX+=p.x
+avgY+=p.y
+}
 
-    avgX/=tips.length
-    avgY/=tips.length
+avgX/=tips.length
+avgY/=tips.length
 
-    const currentFingerX=avgX*video.videoWidth
-    const currentFingerY=avgY*video.videoHeight
+const currentFingerX=avgX*video.videoWidth
+const currentFingerY=avgY*video.videoHeight
 
-    if(zooming && !zoomLock){
-      lockedFingerX=currentFingerX
-      lockedFingerY=currentFingerY
-      zoomLock=true
-    }
+if(zooming && !zoomLock){
+lockedFingerX=currentFingerX
+lockedFingerY=currentFingerY
+zoomLock=true
+}
 
-    if(!zooming){
-      zoomLock=false
-    }
+if(!zooming){
+zoomLock=false
+}
 
-    if(zoomLock){
-      fingerX=lockedFingerX
-      fingerY=lockedFingerY
-    }else{
-      fingerX=currentFingerX
-      fingerY=currentFingerY
-    }
+if(zoomLock){
+fingerX=lockedFingerX
+fingerY=lockedFingerY
+}else{
+fingerX=currentFingerX
+fingerY=currentFingerY
+}
 
-    const palmFacing=hand[9].z<hand[0].z
+}
 
-    for(let p of tips){
-      ctx.beginPath()
-      ctx.arc(p.x*canvas.width,p.y*canvas.height,10,0,Math.PI*2)
-      ctx.fillStyle=palmFacing?"#00ff88":"#ff8800"
-      ctx.fill()
-    }
+const zoomFactor=zoom
 
-  }
+const cropW=video.videoWidth/zoomFactor
+const cropH=video.videoHeight/zoomFactor
 
-  const zoomFactor=zoom
+let cropX=fingerX-cropW/2
+let cropY=fingerY-cropH/2
 
-  const cropW=video.videoWidth/zoomFactor
-  const cropH=video.videoHeight/zoomFactor
+cropX=Math.max(0,Math.min(cropX,video.videoWidth-cropW))
+cropY=Math.max(0,Math.min(cropY,video.videoHeight-cropH))
 
-  let cropX=fingerX-cropW/2
-  let cropY=fingerY-cropH/2
+if(!vrMode){
 
-  cropX=Math.max(0,Math.min(cropX,video.videoWidth-cropW))
-  cropY=Math.max(0,Math.min(cropY,video.videoHeight-cropH))
+ctx.drawImage(video,cropX,cropY,cropW,cropH,0,0,canvas.width,canvas.height)
 
-  // smooth camera crop for less jitter
-  cropX = cropX*0.8 + (fingerX-cropW/2)*0.2
-  cropY = cropY*0.8 + (fingerY-cropH/2)*0.2
+}else{
 
-  if(!vrMode){
+const half=canvas.width/2
+const eyeOffset=20
 
-    ctx.drawImage(video,cropX,cropY,cropW,cropH,0,0,canvas.width,canvas.height)
+ctx.drawImage(video,cropX-eyeOffset,cropY,cropW,cropH,0,0,half,canvas.height)
+ctx.drawImage(video,cropX+eyeOffset,cropY,cropW,cropH,half,0,half,canvas.height)
 
-  }else{
+ctx.fillStyle="black"
+ctx.fillRect(half-2,0,4,canvas.height)
 
-    const half=canvas.width/2
+const gradient=ctx.createRadialGradient(
+canvas.width/2,
+canvas.height/2,
+canvas.height/4,
+canvas.width/2,
+canvas.height/2,
+canvas.height/1.1
+)
 
-    ctx.drawImage(video,cropX,cropY,cropW,cropH,0,0,half,canvas.height)
-    ctx.drawImage(video,cropX,cropY,cropW,cropH,half,0,half,canvas.height)
+gradient.addColorStop(0,"rgba(0,0,0,0)")
+gradient.addColorStop(1,"rgba(0,0,0,0.85)")
 
-  }
+ctx.fillStyle=gradient
+ctx.fillRect(0,0,canvas.width,canvas.height)
 
-  if(zooming){
-    cyberpunkZoomEffect()
-  }
+}
+
+if(zooming){
+cyberpunkZoomEffect()
+}
 
 })
 
 async function startCamera(){
 
-  if(stream) stream.getTracks().forEach(track=>track.stop())
+if(stream) stream.getTracks().forEach(track=>track.stop())
 
-  stream=await navigator.mediaDevices.getUserMedia({
-    video:{
-      facingMode:currentFacing,
-      width:isMobile?640:1280,
-      height:isMobile?480:720
-    },
-    audio:false
-  })
+stream=await navigator.mediaDevices.getUserMedia({
+video:{
+facingMode:currentFacing,
+width:isMobile?640:1280,
+height:isMobile?480:720
+},
+audio:false
+})
 
-  video.srcObject=stream
-  await video.play()
+video.srcObject=stream
+await video.play()
 
 }
 
 async function processFrame(){
 
-  if(video.readyState>=2){
-    await hands.send({image:video})
-  }
+if(video.readyState>=2){
+await hands.send({image:video})
+}
 
-  requestAnimationFrame(processFrame)
+requestAnimationFrame(processFrame)
 
 }
 
 switchBtn.onclick=async()=>{
-  currentFacing=currentFacing==="user"?"environment":"user"
-  await startCamera()
+currentFacing=currentFacing==="user"?"environment":"user"
+await startCamera()
 }
 
-// VR Fullscreen + landscape lock
 async function enterVR(){
-  try{
-    if(document.documentElement.requestFullscreen){
-      await document.documentElement.requestFullscreen()
-    } else if(document.documentElement.webkitRequestFullscreen){
-      await document.documentElement.webkitRequestFullscreen()
-    }
 
-    if(screen.orientation && screen.orientation.lock){
-      await screen.orientation.lock("landscape")
-    }
-  }catch(e){}
+try{
 
-  canvas.width = window.innerWidth
-  canvas.height = window.innerHeight
+if(document.documentElement.requestFullscreen)
+await document.documentElement.requestFullscreen()
+
+if(screen.orientation && screen.orientation.lock)
+await screen.orientation.lock("landscape")
+
+}catch(e){}
+
+canvas.width=window.innerWidth
+canvas.height=window.innerHeight
+
 }
 
-// Exit VR
 async function exitVR(){
-  try{
-    if(document.fullscreenElement){
-      await document.exitFullscreen()
-    }
 
-    if(screen.orientation && screen.orientation.unlock){
-      screen.orientation.unlock()
-    }
-  }catch(e){}
+try{
 
-  canvas.width = window.innerWidth
-  canvas.height = window.innerHeight
+if(document.fullscreenElement)
+await document.exitFullscreen()
+
+if(screen.orientation && screen.orientation.unlock)
+screen.orientation.unlock()
+
+}catch(e){}
+
+canvas.width=window.innerWidth
+canvas.height=window.innerHeight
+
 }
 
-// Auto adjust canvas on orientation change
-window.addEventListener("orientationchange", ()=>{
-  canvas.width = window.innerWidth
-  canvas.height = window.innerHeight
+vrBtn.onclick=async()=>{
+
+vrMode=!vrMode
+
+if(vrMode){
+vrBtn.innerText="Exit VR"
+await enterVR()
+}else{
+vrBtn.innerText="VR Mode"
+await exitVR()
+}
+
+}
+
+uiBtn.onclick=()=>{
+
+uiHidden=true
+
+document.querySelectorAll("button").forEach(btn=>{
+btn.style.display="none"
 })
 
-// VR button
-vrBtn.onclick = async()=>{
+}
 
-  vrMode = !vrMode
+document.addEventListener("click",()=>{
 
-  if(vrMode){
-    vrBtn.innerText="Exit VR"
-    await enterVR()
+if(uiHidden){
 
-    // hide ui automatically
-    document.querySelectorAll("button").forEach(btn=>{
-      if(btn !== uiBtn) btn.style.display="none"
-    })
-    uiBtn.innerText="Show UI"
+document.querySelectorAll("button").forEach(btn=>{
+btn.style.display="block"
+})
 
-  }else{
-    vrBtn.innerText="VR Mode"
-    await exitVR()
-
-    // show ui again
-    document.querySelectorAll("button").forEach(btn=>{
-      btn.style.display="block"
-    })
-    uiBtn.innerText="Hide UI"
-  }
+uiHidden=false
 
 }
 
-// UI toggle button
-uiBtn.onclick = ()=>{
-  uiHidden = !uiHidden
-  document.querySelectorAll("button").forEach(btn=>{
-    if(btn !== uiBtn){
-      btn.style.display = uiHidden ? "none" : "block"
-    }
-  })
-  uiBtn.innerText = uiHidden ? "Show UI" : "Hide UI"
-}
+})
+
+window.addEventListener("orientationchange",()=>{
+canvas.width=window.innerWidth
+canvas.height=window.innerHeight
+})
 
 async function init(){
-  await startCamera()
-  processFrame()
+await startCamera()
+processFrame()
 }
 
 init()
