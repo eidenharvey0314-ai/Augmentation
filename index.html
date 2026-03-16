@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cyberpunk Hand Zoom Camera</title>
+<title>UPD 0.1 Cyberpunk Hand Zoom Camera</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
@@ -79,7 +79,7 @@ canvas.height = window.innerHeight
 const isMobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
 if(!isMobile) switchBtn.style.display="none"
 
-let currentFacing="user"
+let currentFacing="environment"
 let stream=null
 let zoom=1
 let lastSpread=0
@@ -91,6 +91,9 @@ let lockedFingerY=null
 let zoomLock=false
 
 let uiHidden=false
+
+let ultraWideId=null
+let normalCamId=null
 
 function distance(a,b){
 return Math.sqrt((a.x-b.x)**2+(a.y-b.y)**2)
@@ -119,16 +122,47 @@ ctx.fillStyle="black"
 ctx.fillRect(0,y,width,1)
 }
 
-for(let i=0;i<140;i++){
+for(let i=0;i<120;i++){
 const x=Math.random()*width
 const y=Math.random()*height
-const w=Math.random()*3
-const h=Math.random()*3
 ctx.fillStyle="white"
-ctx.fillRect(x,y,w,h)
+ctx.fillRect(x,y,2,2)
 }
 
 ctx.restore()
+
+}
+
+function applyLensDistortion(){
+
+const strength=0.15
+
+const w=canvas.width
+const h=canvas.height
+
+ctx.translate(w/2,h/2)
+ctx.scale(1+strength,1+strength)
+ctx.translate(-w/2,-h/2)
+
+}
+
+async function detectCameras(){
+
+const devices=await navigator.mediaDevices.enumerateDevices()
+
+const videoDevices=devices.filter(d=>d.kind==="videoinput")
+
+videoDevices.forEach(d=>{
+
+const name=d.label.toLowerCase()
+
+if(name.includes("ultra") || name.includes("wide") || name.includes("0.5")){
+ultraWideId=d.deviceId
+}else{
+normalCamId=d.deviceId
+}
+
+})
 
 }
 
@@ -173,8 +207,6 @@ const middle=hand[12]
 const ring=hand[16]
 const pinky=hand[20]
 
-const tips=[thumb,index,middle,ring,pinky]
-
 const spread=distance(index,pinky)+distance(thumb,middle)
 
 if(lastSpread!==0){
@@ -197,6 +229,8 @@ lastSpread=spread
 
 let avgX=0
 let avgY=0
+
+const tips=[thumb,index,middle,ring,pinky]
 
 for(let p of tips){
 avgX+=p.x
@@ -229,10 +263,8 @@ fingerY=currentFingerY
 
 }
 
-const zoomFactor=zoom
-
-const cropW=video.videoWidth/zoomFactor
-const cropH=video.videoHeight/zoomFactor
+const cropW=video.videoWidth/zoom
+const cropH=video.videoHeight/zoom
 
 let cropX=fingerX-cropW/2
 let cropY=fingerY-cropH/2
@@ -246,29 +278,20 @@ ctx.drawImage(video,cropX,cropY,cropW,cropH,0,0,canvas.width,canvas.height)
 
 }else{
 
+ctx.save()
+
+applyLensDistortion()
+
 const half=canvas.width/2
 const eyeOffset=20
 
 ctx.drawImage(video,cropX-eyeOffset,cropY,cropW,cropH,0,0,half,canvas.height)
 ctx.drawImage(video,cropX+eyeOffset,cropY,cropW,cropH,half,0,half,canvas.height)
 
+ctx.restore()
+
 ctx.fillStyle="black"
 ctx.fillRect(half-2,0,4,canvas.height)
-
-const gradient=ctx.createRadialGradient(
-canvas.width/2,
-canvas.height/2,
-canvas.height/4,
-canvas.width/2,
-canvas.height/2,
-canvas.height/1.1
-)
-
-gradient.addColorStop(0,"rgba(0,0,0,0)")
-gradient.addColorStop(1,"rgba(0,0,0,0.85)")
-
-ctx.fillStyle=gradient
-ctx.fillRect(0,0,canvas.width,canvas.height)
 
 }
 
@@ -282,12 +305,28 @@ async function startCamera(){
 
 if(stream) stream.getTracks().forEach(track=>track.stop())
 
-stream=await navigator.mediaDevices.getUserMedia({
-video:{
+let videoOptions
+
+if(isMobile && ultraWideId){
+
+videoOptions={
+deviceId:{exact:ultraWideId},
+width:640,
+height:480
+}
+
+}else{
+
+videoOptions={
 facingMode:currentFacing,
 width:isMobile?640:1280,
 height:isMobile?480:720
-},
+}
+
+}
+
+stream=await navigator.mediaDevices.getUserMedia({
+video:videoOptions,
 audio:false
 })
 
@@ -389,8 +428,11 @@ canvas.height=window.innerHeight
 })
 
 async function init(){
+
+await detectCameras()
 await startCamera()
 processFrame()
+
 }
 
 init()
