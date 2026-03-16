@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html>
 <head>
@@ -5,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="apple-mobile-web-app-capable" content="yes">
 
-<title>Cyberpunk Hand Zoom Camera</title>
+<title>VR Hand Camera</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
@@ -24,35 +25,30 @@ top:0;
 left:0;
 }
 
-button{
+/* UI container */
+
+#uiContainer{
 position:absolute;
+bottom:20px;
 left:50%;
 transform:translateX(-50%);
+display:flex;
+flex-direction:column;
+gap:10px;
+z-index:10;
+}
+
+#uiContainer button{
 padding:12px 20px;
 font-size:16px;
 border:none;
 border-radius:8px;
 font-weight:bold;
-z-index:10;
 }
 
-#switchBtn{
-bottom:20px;
-background:#00ffff;
-color:black;
-}
-
-#vrBtn{
-bottom:80px;
-background:#ff44ff;
-color:white;
-}
-
-#uiBtn{
-bottom:140px;
-background:#222;
-color:white;
-}
+#switchBtn{background:#00ffff;color:black;}
+#vrBtn{background:#ff44ff;color:white;}
+#uiBtn{background:#222;color:white;}
 
 </style>
 </head>
@@ -62,9 +58,11 @@ color:white;
 <video id="video" autoplay playsinline style="display:none"></video>
 <canvas id="canvas"></canvas>
 
+<div id="uiContainer">
 <button id="switchBtn">Switch Camera</button>
 <button id="vrBtn">VR Mode</button>
 <button id="uiBtn">Hide UI</button>
+</div>
 
 <script>
 
@@ -75,11 +73,10 @@ const ctx=canvas.getContext("2d")
 const switchBtn=document.getElementById("switchBtn")
 const vrBtn=document.getElementById("vrBtn")
 const uiBtn=document.getElementById("uiBtn")
+const uiContainer=document.getElementById("uiContainer")
 
 const isMobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
 const isiPhone=/iPhone/i.test(navigator.userAgent)
-
-if(!isMobile) switchBtn.style.display="none"
 
 canvas.width=window.innerWidth
 canvas.height=window.innerHeight
@@ -91,17 +88,10 @@ let zoom=1
 let lastSpread=0
 let vrMode=false
 
-let smoothedLandmarks=null
-
-let lockedFingerX=null
-let lockedFingerY=null
-let zoomLock=false
-
 let uiHidden=false
 
 let ultraWideId=null
 let normalCamId=null
-
 
 function resizeCanvas(){
 
@@ -109,30 +99,17 @@ canvas.width=window.innerWidth
 canvas.height=window.innerHeight
 
 if(isiPhone && window.innerHeight>window.innerWidth){
-
 canvas.style.transform="rotate(90deg)"
 canvas.style.transformOrigin="center"
-
 }else{
-
 canvas.style.transform="none"
-
 }
 
 }
-
-
-function distance(a,b){
-return Math.sqrt((a.x-b.x)**2+(a.y-b.y)**2)
-}
-
 
 function cyberpunkZoomEffect(){
 
 ctx.save()
-
-const width=canvas.width
-const height=canvas.height
 
 ctx.globalAlpha=0.35
 ctx.drawImage(canvas,3,0)
@@ -142,20 +119,14 @@ ctx.drawImage(canvas,-3,0)
 
 ctx.globalCompositeOperation="source-over"
 
-for(let y=0;y<height;y+=4){
+for(let y=0;y<canvas.height;y+=4){
 ctx.fillStyle="black"
-ctx.fillRect(0,y,width,1)
-}
-
-for(let i=0;i<100;i++){
-ctx.fillStyle="white"
-ctx.fillRect(Math.random()*width,Math.random()*height,2,2)
+ctx.fillRect(0,y,canvas.width,1)
 }
 
 ctx.restore()
 
 }
-
 
 function applyLensDistortion(){
 
@@ -169,14 +140,12 @@ ctx.translate(-w/2,-h/2)
 
 }
 
-
 async function detectCameras(){
 
 const devices=await navigator.mediaDevices.enumerateDevices()
 
-const videos=devices.filter(d=>d.kind==="videoinput")
-
-videos.forEach(d=>{
+devices.forEach(d=>{
+if(d.kind==="videoinput"){
 
 const name=d.label.toLowerCase()
 
@@ -186,149 +155,11 @@ ultraWideId=d.deviceId
 normalCamId=d.deviceId
 }
 
+}
+
 })
 
 }
-
-
-const hands=new Hands({
-locateFile:(file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-})
-
-
-hands.setOptions({
-maxNumHands:1,
-modelComplexity:1,
-minDetectionConfidence:0.6,
-minTrackingConfidence:0.6
-})
-
-
-hands.onResults(results=>{
-
-ctx.clearRect(0,0,canvas.width,canvas.height)
-
-let zooming=false
-let fingerX=video.videoWidth/2
-let fingerY=video.videoHeight/2
-
-if(results.multiHandLandmarks && results.multiHandLandmarks.length){
-
-const raw=results.multiHandLandmarks[0]
-
-if(!smoothedLandmarks) smoothedLandmarks=raw
-
-const smoothFactor=0.6
-
-smoothedLandmarks=raw.map((p,i)=>({
-x:smoothedLandmarks[i].x*smoothFactor+p.x*(1-smoothFactor),
-y:smoothedLandmarks[i].y*smoothFactor+p.y*(1-smoothFactor),
-z:p.z
-}))
-
-const hand=smoothedLandmarks
-
-const thumb=hand[4]
-const index=hand[8]
-const middle=hand[12]
-const ring=hand[16]
-const pinky=hand[20]
-
-const spread=distance(index,pinky)+distance(thumb,middle)
-
-if(lastSpread!==0){
-
-if(spread>lastSpread+0.02){
-zoom+=0.08
-zooming=true
-}
-
-if(spread<lastSpread-0.02){
-zoom-=0.08
-zooming=true
-}
-
-zoom=Math.max(1,Math.min(6.5,zoom))
-
-}
-
-lastSpread=spread
-
-let avgX=0
-let avgY=0
-
-const tips=[thumb,index,middle,ring,pinky]
-
-for(let p of tips){
-avgX+=p.x
-avgY+=p.y
-}
-
-avgX/=tips.length
-avgY/=tips.length
-
-const currentFingerX=avgX*video.videoWidth
-const currentFingerY=avgY*video.videoHeight
-
-if(zooming && !zoomLock){
-lockedFingerX=currentFingerX
-lockedFingerY=currentFingerY
-zoomLock=true
-}
-
-if(!zooming){
-zoomLock=false
-}
-
-if(zoomLock){
-fingerX=lockedFingerX
-fingerY=lockedFingerY
-}else{
-fingerX=currentFingerX
-fingerY=currentFingerY
-}
-
-}
-
-
-const cropW=video.videoWidth/zoom
-const cropH=video.videoHeight/zoom
-
-let cropX=fingerX-cropW/2
-let cropY=fingerY-cropH/2
-
-cropX=Math.max(0,Math.min(cropX,video.videoWidth-cropW))
-cropY=Math.max(0,Math.min(cropY,video.videoHeight-cropH))
-
-
-if(!vrMode){
-
-ctx.drawImage(video,cropX,cropY,cropW,cropH,0,0,canvas.width,canvas.height)
-
-}else{
-
-ctx.save()
-
-applyLensDistortion()
-
-const half=canvas.width/2
-const eyeOffset=20
-
-ctx.drawImage(video,cropX-eyeOffset,cropY,cropW,cropH,0,0,half,canvas.height)
-ctx.drawImage(video,cropX+eyeOffset,cropY,cropW,cropH,half,0,half,canvas.height)
-
-ctx.restore()
-
-ctx.fillStyle="black"
-ctx.fillRect(half-2,0,4,canvas.height)
-
-}
-
-
-if(zooming) cyberpunkZoomEffect()
-
-})
-
 
 async function startCamera(){
 
@@ -337,21 +168,17 @@ if(stream) stream.getTracks().forEach(t=>t.stop())
 let videoOptions
 
 if(isMobile && ultraWideId){
-
 videoOptions={
 deviceId:{exact:ultraWideId},
 width:640,
 height:480
 }
-
 }else{
-
 videoOptions={
 facingMode:currentFacing,
 width:isMobile?640:1280,
 height:isMobile?480:720
 }
-
 }
 
 stream=await navigator.mediaDevices.getUserMedia({
@@ -364,23 +191,41 @@ await video.play()
 
 }
 
+function drawFrame(){
 
-async function processFrame(){
+ctx.clearRect(0,0,canvas.width,canvas.height)
 
-if(video.readyState>=2){
-await hands.send({image:video})
+if(!vrMode){
+
+ctx.drawImage(video,0,0,canvas.width,canvas.height)
+
+}else{
+
+ctx.save()
+
+applyLensDistortion()
+
+const half=canvas.width/2
+const offset=20
+
+ctx.drawImage(video,-offset,0,canvas.width,canvas.height,0,0,half,canvas.height)
+ctx.drawImage(video,offset,0,canvas.width,canvas.height,half,0,half,canvas.height)
+
+ctx.restore()
+
+ctx.fillStyle="black"
+ctx.fillRect(half-2,0,4,canvas.height)
+
 }
 
-requestAnimationFrame(processFrame)
+requestAnimationFrame(drawFrame)
 
 }
-
 
 switchBtn.onclick=async()=>{
 currentFacing=currentFacing==="user"?"environment":"user"
 await startCamera()
 }
-
 
 async function enterVR(){
 
@@ -401,8 +246,6 @@ if(isiPhone){
 document.body.style.position="fixed"
 document.body.style.width="100vw"
 document.body.style.height="100vh"
-document.body.style.top="0"
-document.body.style.left="0"
 
 }
 
@@ -410,17 +253,12 @@ resizeCanvas()
 
 }
 
-
 async function exitVR(){
 
 try{
 
 if(document.fullscreenElement){
 await document.exitFullscreen()
-}
-
-if(screen.orientation && screen.orientation.unlock){
-screen.orientation.unlock()
 }
 
 }catch(e){}
@@ -437,7 +275,6 @@ resizeCanvas()
 
 }
 
-
 vrBtn.onclick=async()=>{
 
 vrMode=!vrMode
@@ -452,47 +289,41 @@ await exitVR()
 
 }
 
+uiBtn.addEventListener("pointerdown",(e)=>{
 
-uiBtn.onclick=()=>{
+e.stopPropagation()
 
+uiContainer.style.display="none"
 uiHidden=true
 
-document.querySelectorAll("button").forEach(btn=>{
-btn.style.display="none"
 })
 
-}
-
-
-document.addEventListener("click",()=>{
+document.addEventListener("pointerdown",()=>{
 
 if(uiHidden){
 
-document.querySelectorAll("button").forEach(btn=>{
-btn.style.display="block"
-})
-
+uiContainer.style.display="flex"
 uiHidden=false
 
 }
 
 })
 
-
 window.addEventListener("resize",resizeCanvas)
 window.addEventListener("orientationchange",resizeCanvas)
-
 
 async function init(){
 
 await detectCameras()
 await startCamera()
-processFrame()
+drawFrame()
 
 }
 
 init()
 
 </script>
+
 </body>
 </html>
+```
