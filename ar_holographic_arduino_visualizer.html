@@ -3,417 +3,548 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>VR Mobile Camera - Dual View HUD</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <title>VR Dual-Viewport Camera & HUD - GitHub Pages Ready</title>
     <style>
-        body, html {
+        /* CSS RESET & VARS */
+        * {
+            box-sizing: border-box;
             margin: 0;
             padding: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            background-color: #000;
             user-select: none;
             -webkit-user-select: none;
-            touch-action: manipulation;
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            -webkit-touch-callout: none;
         }
 
-        /* Container that handles forced landscape transformation */
-        #vr-stage {
+        :root {
+            --yellow-hud: rgba(255, 235, 59, 0.85);
+            --yellow-hud-bg: rgba(255, 215, 0, 0.22);
+            --yellow-line: #ffe600;
+            --bezel-border: #111111;
+        }
+
+        html, body {
+            width: 100vw;
+            height: 100vh;
+            background-color: #000000;
+            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+            position: fixed;
+        }
+
+        /* FORCED LANDSCAPE LAYOUT FOR MOBILE / VR */
+        @media screen and (orientation: portrait) {
+            #vr-app-container {
+                transform: rotate(90deg);
+                transform-origin: bottom left;
+                position: absolute;
+                top: -100vw;
+                left: 0;
+                width: 100vh !important;
+                height: 100vw !important;
+            }
+        }
+
+        #vr-app-container {
             width: 100vw;
             height: 100vh;
             display: flex;
-            align-items: center;
-            justify-content: center;
-            background-color: #000;
-            transition: transform 0.3s ease;
-        }
-
-        /* Forced portrait to landscape rotation */
-        .force-landscape {
-            position: absolute !important;
-            width: 100vh !important;
-            height: 100vw !important;
-            transform: rotate(90deg);
-            transform-origin: center center;
-        }
-
-        /* Dual Eye VR Split Layout */
-        .vr-viewport-container {
-            width: 100%;
-            height: 100%;
-            display: flex;
             flex-direction: row;
             align-items: center;
-            justify-content: space-evenly;
-            padding: 1vw;
-            box-sizing: border-box;
-            gap: 1.5vw;
+            justify-content: center;
+            background: #000;
+            position: relative;
         }
 
-        /* Eye Box Frame Container matching reference image bezel */
-        .eye-frame {
-            position: relative;
+        /* HIDDEN MASTER VIDEO FEED SOURCE */
+        #master-video, #master-canvas-sim {
+            display: none;
+        }
+
+        /* STEREOSCOPIC DUAL EYE VIEWPORTS CONTAINER */
+        .eye-viewport {
             flex: 1;
-            height: 92%;
-            max-height: 95vh;
-            aspect-ratio: 4/3;
-            background: #000;
-            border-radius: 28px;
+            height: 100%;
+            position: relative;
             display: flex;
             align-items: center;
             justify-content: center;
+            padding: 12px;
             overflow: hidden;
-            box-shadow: inset 0 0 15px rgba(0,0,0,0.8);
         }
 
-        /* Outer Bezel Overlay (Recreating image_0acdc2.png in SVG) */
-        .bezel-svg {
+        /* BEVEL LENS FRAME (Matching image_0acdc2.png format) */
+        .lens-bezel-frame {
+            position: relative;
+            width: 92%;
+            height: 88%;
+            border-radius: 40px;
+            background: #080808;
+            border: 8px solid #222222;
+            box-shadow: inset 0 0 20px #000000, 0 0 15px rgba(0,0,0,0.8);
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* INNER BEVEL CORNER DIAGONAL CUT LINES */
+        .lens-bezel-frame::before {
+            content: '';
             position: absolute;
             inset: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 20;
+            border-radius: 32px;
+            border: 2px solid #333333;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* INNER CUTOUT WINDOW */
+        .lens-screen-cutout {
+            position: relative;
+            width: 84%;
+            height: 80%;
+            border-radius: 24px;
+            overflow: hidden;
+            background: #050505;
+            box-shadow: 0 0 0 4px #151515, inset 0 0 12px rgba(0,0,0,0.9);
+        }
+
+        /* DIAGONAL BEVEL TRAPEZOID CORNER LINES (MATCHING IMAGE) */
+        .corner-line {
+            position: absolute;
+            background: #282828;
+            z-index: 12;
             pointer-events: none;
         }
 
-        /* Inner Video Stream Viewport */
-        .video-viewport {
-            position: absolute;
-            top: 14%;
-            left: 14%;
-            width: 72%;
-            height: 72%;
-            border-radius: 18px;
-            overflow: hidden;
-            background: #050811;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 5;
-        }
+        .cl-tl { top: 0; left: 0; width: 12%; height: 3px; transform: rotate(45deg); transform-origin: top left; }
+        .cl-tr { top: 0; right: 0; width: 12%; height: 3px; transform: rotate(-45deg); transform-origin: top right; }
+        .cl-bl { bottom: 0; left: 0; width: 12%; height: 3px; transform: rotate(-45deg); transform-origin: bottom left; }
+        .cl-br { bottom: 0; right: 0; width: 12%; height: 3px; transform: rotate(45deg); transform-origin: bottom right; }
 
-        .video-feed {
+        /* LIVE CAMERA / SIMULATION CANVAS DISPLAYED IN EYE */
+        .eye-feed-canvas {
             width: 100%;
             height: 100%;
             object-fit: cover;
-            transform: scaleX(-1); /* Front camera mirror by default */
         }
 
-        /* Yellow Translucent Overlay Graph Plane on Right Side of Eye View */
-        .hud-graph-plane {
+        /* TRANSLUCENT YELLOW HUD PLANE OVERLAY (RIGHT SIDE OF EACH EYE) */
+        .hud-yellow-plane {
             position: absolute;
-            right: 4%;
-            top: 12%;
-            width: 38%;
-            height: 76%;
-            background: rgba(255, 230, 0, 0.22);
-            border: 1.5px solid rgba(255, 235, 59, 0.75);
+            right: 5%;
+            top: 10%;
+            width: 42%;
+            height: 80%;
+            background: var(--yellow-hud-bg);
+            border: 2px solid var(--yellow-hud);
             border-radius: 12px;
             backdrop-filter: blur(2px);
             -webkit-backdrop-filter: blur(2px);
-            z-index: 10;
-            box-shadow: 0 0 12px rgba(255, 235, 59, 0.25), inset 0 0 10px rgba(255, 235, 59, 0.15);
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.3), inset 0 0 10px rgba(255, 215, 0, 0.2);
+            z-index: 5;
             display: flex;
             flex-direction: column;
+            padding: 8px;
             pointer-events: none;
-            overflow: hidden;
         }
 
-        /* Canvas for live waveform and grid */
-        .graph-canvas {
+        .hud-title {
+            color: #fffb00;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-shadow: 0 0 4px rgba(0,0,0,0.8);
+            margin-bottom: 4px;
+            text-transform: uppercase;
+        }
+
+        .hud-graph-canvas {
             width: 100%;
             height: 100%;
             display: block;
         }
 
-        /* Touch Start Overlay */
-        #vr-overlay {
+        /* TOP STATUS & GITHUB INSTRUCTIONS BAR */
+        #vr-controls-overlay {
+            position: fixed;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .btn-ui {
+            background: rgba(20, 20, 20, 0.85);
+            color: #ffe600;
+            border: 1px solid rgba(255, 230, 0, 0.5);
+            padding: 8px 14px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            backdrop-filter: blur(8px);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            transition: all 0.2s ease;
+        }
+
+        .btn-ui:active {
+            transform: scale(0.95);
+            background: #ffe600;
+            color: #000;
+        }
+
+        #github-instructions-modal {
             position: fixed;
             inset: 0;
-            z-index: 50;
-            background: rgba(0, 0, 0, 0.92);
+            background: rgba(0, 0, 0, 0.88);
+            backdrop-filter: blur(10px);
+            z-index: 200;
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
-            color: #fff;
+            padding: 20px;
+        }
+
+        .modal-card {
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 16px;
+            max-width: 540px;
+            width: 100%;
             padding: 24px;
-            text-align: center;
+            color: #ddd;
+            font-size: 13px;
+            line-height: 1.6;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+        }
+
+        .modal-card h2 {
+            color: #ffe600;
+            font-size: 18px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .modal-card ol {
+            margin-left: 20px;
+            margin-bottom: 16px;
+        }
+
+        .modal-card li {
+            margin-bottom: 6px;
+        }
+
+        .code-block {
+            background: #000;
+            border: 1px solid #222;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-family: monospace;
+            color: #7ef88d;
+            font-size: 12px;
+            display: inline-block;
+            margin: 2px 0;
+        }
+
+        .close-btn {
+            background: #ffe600;
+            color: #000;
+            border: none;
+            padding: 8px 18px;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            float: right;
+            margin-top: 10px;
+        }
+
+        /* STATUS BADGE */
+        #status-badge {
+            position: fixed;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 90;
+            background: rgba(0,0,0,0.6);
+            border: 1px solid rgba(255,255,255,0.15);
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 10px;
+            color: #aaa;
+            pointer-events: none;
         }
     </style>
 </head>
 <body>
 
-    <!-- Hidden Video Element for Single Webcam Feed -->
-    <video id="webcam-source" autoplay playsinline style="display: none;"></video>
+    <!-- HIDDEN MASTER VIDEO INPUT -->
+    <video id="master-video" autoplay playsinline muted></video>
+    <!-- FALLBACK CANVAS FOR SIMULATED SCENE -->
+    <canvas id="master-canvas-sim" width="640" height="480"></canvas>
 
-    <!-- Tap to Start VR Overlay -->
-    <div id="vr-overlay">
-        <div class="w-16 h-16 rounded-2xl bg-yellow-400/20 border border-yellow-400/40 flex items-center justify-center mb-4 text-yellow-400 text-2xl animate-pulse">
-            <i class="fa-solid fa-vr-cardboard"></i>
-        </div>
-        <h1 class="text-xl font-bold mb-2 tracking-wide">Mobile VR Camera Feed</h1>
-        <p class="text-xs text-gray-400 max-w-xs mb-6 leading-relaxed">
-            Tap anywhere to enter VR mode. Insert phone into VR goggle headset.
-        </p>
-        <button onclick="enterVRMode()" class="px-6 py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-sm rounded-xl shadow-lg transition-all active:scale-95 flex items-center gap-2">
-            <i class="fa-solid fa-play"></i> START VR MODE
-        </button>
+    <!-- FLOATING UI CONTROLS FOR MOBILE VR ENLISTMENT -->
+    <div id="vr-controls-overlay">
+        <button class="btn-ui" onclick="requestVRMode()">📱 Enter VR / Fullscreen</button>
+        <button class="btn-ui" onclick="toggleInstructions()">📄 GitHub Pages Guide</button>
     </div>
 
-    <!-- Main VR Dual Viewport Stage -->
-    <div id="vr-stage">
-        <div class="vr-viewport-container">
+    <div id="status-badge">Mode: Initializing...</div>
 
-            <!-- LEFT EYE VIEWPORT -->
-            <div class="eye-frame">
-                <!-- Outer Frame Bezel (matching image_0acdc2.png) -->
-                <svg class="bezel-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
-                    <!-- Outer Bezel Masking -->
-                    <path d="M0,0 L100,0 L100,100 L0,100 Z M14,14 L14,86 L86,86 L86,14 Z" fill="#090a0f" fill-rule="evenodd" />
-                    <!-- Outer Border Radius Frame -->
-                    <rect x="2" y="2" width="96" height="96" rx="10" ry="10" fill="none" stroke="#ffffff" stroke-width="2.5"/>
-                    <!-- Inner Border Radius Frame -->
-                    <rect x="14" y="14" width="72" height="72" rx="6" ry="6" fill="none" stroke="#ffffff" stroke-width="2.2"/>
-                    <!-- Diagonal Bevel Corner Connector Lines -->
-                    <line x1="2" y1="2" x2="14" y2="14" stroke="#ffffff" stroke-width="2" />
-                    <line x1="98" y1="2" x2="86" y2="14" stroke="#ffffff" stroke-width="2" />
-                    <line x1="2" y1="98" x2="14" y2="86" stroke="#ffffff" stroke-width="2" />
-                    <line x1="98" y1="98" x2="86" y2="86" stroke="#ffffff" stroke-width="2" />
-                </svg>
+    <!-- MAIN VR STEREOSCOPIC CONTAINER -->
+    <div id="vr-app-container">
 
-                <!-- Video Viewport -->
-                <div class="video-viewport">
-                    <canvas id="left-eye-canvas" class="w-full h-full object-cover"></canvas>
-                </div>
+        <!-- LEFT EYE VIEWPORT -->
+        <div class="eye-viewport">
+            <div class="lens-bezel-frame">
+                <div class="corner-line cl-tl"></div>
+                <div class="corner-line cl-tr"></div>
+                <div class="corner-line cl-bl"></div>
+                <div class="corner-line cl-br"></div>
 
-                <!-- Yellow HUD Graph Overlay Plane (Right Side) -->
-                <div class="hud-graph-plane">
-                    <div class="px-2 py-1 bg-yellow-400/20 border-b border-yellow-400/30 flex justify-between items-center text-[9px] font-mono font-bold text-yellow-300">
-                        <span>PLT-L</span>
-                        <span class="animate-pulse">● LIVE</span>
+                <div class="lens-screen-cutout">
+                    <canvas id="left-eye-canvas" class="eye-feed-canvas"></canvas>
+                    
+                    <!-- TRANSLUCENT YELLOW HUD PLANE (RIGHT SIDE) -->
+                    <div class="hud-yellow-plane">
+                        <div class="hud-title">HUD // GRID L</div>
+                        <canvas id="left-hud-graph" class="hud-graph-canvas"></canvas>
                     </div>
-                    <canvas id="graph-left" class="graph-canvas"></canvas>
                 </div>
             </div>
+        </div>
 
-            <!-- RIGHT EYE VIEWPORT -->
-            <div class="eye-frame">
-                <!-- Outer Frame Bezel (matching image_0acdc2.png) -->
-                <svg class="bezel-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
-                    <!-- Outer Bezel Masking -->
-                    <path d="M0,0 L100,0 L100,100 L0,100 Z M14,14 L14,86 L86,86 L86,14 Z" fill="#090a0f" fill-rule="evenodd" />
-                    <!-- Outer Border Radius Frame -->
-                    <rect x="2" y="2" width="96" height="96" rx="10" ry="10" fill="none" stroke="#ffffff" stroke-width="2.5"/>
-                    <!-- Inner Border Radius Frame -->
-                    <rect x="14" y="14" width="72" height="72" rx="6" ry="6" fill="none" stroke="#ffffff" stroke-width="2.2"/>
-                    <!-- Diagonal Bevel Corner Connector Lines -->
-                    <line x1="2" y1="2" x2="14" y2="14" stroke="#ffffff" stroke-width="2" />
-                    <line x1="98" y1="2" x2="86" y2="14" stroke="#ffffff" stroke-width="2" />
-                    <line x1="2" y1="98" x2="14" y2="86" stroke="#ffffff" stroke-width="2" />
-                    <line x1="98" y1="98" x2="86" y2="86" stroke="#ffffff" stroke-width="2" />
-                </svg>
+        <!-- RIGHT EYE VIEWPORT -->
+        <div class="eye-viewport">
+            <div class="lens-bezel-frame">
+                <div class="corner-line cl-tl"></div>
+                <div class="corner-line cl-tr"></div>
+                <div class="corner-line cl-bl"></div>
+                <div class="corner-line cl-br"></div>
 
-                <!-- Video Viewport -->
-                <div class="video-viewport">
-                    <canvas id="right-eye-canvas" class="w-full h-full object-cover"></canvas>
-                </div>
-
-                <!-- Yellow HUD Graph Overlay Plane (Right Side) -->
-                <div class="hud-graph-plane">
-                    <div class="px-2 py-1 bg-yellow-400/20 border-b border-yellow-400/30 flex justify-between items-center text-[9px] font-mono font-bold text-yellow-300">
-                        <span>PLT-R</span>
-                        <span class="animate-pulse">● LIVE</span>
+                <div class="lens-screen-cutout">
+                    <canvas id="right-eye-canvas" class="eye-feed-canvas"></canvas>
+                    
+                    <!-- TRANSLUCENT YELLOW HUD PLANE (RIGHT SIDE) -->
+                    <div class="hud-yellow-plane">
+                        <div class="hud-title">HUD // GRID R</div>
+                        <canvas id="right-hud-graph" class="hud-graph-canvas"></canvas>
                     </div>
-                    <canvas id="graph-right" class="graph-canvas"></canvas>
                 </div>
             </div>
+        </div>
 
+    </div>
+
+    <!-- GITHUB PAGES DEPLOYMENT MODAL -->
+    <div id="github-instructions-modal">
+        <div class="modal-card">
+            <h2>Deploy Free to GitHub Pages</h2>
+            <ol>
+                <li>Create a new repository on GitHub named <span class="code-block">vr-camera-app</span>.</li>
+                <li>Upload this file as <span class="code-block">index.html</span> directly into the main repository branch (<span class="code-block">main</span>).</li>
+                <li>Go to <b>Settings</b> &rarr; <b>Pages</b> in your GitHub repository.</li>
+                <li>Under <b>Build and deployment</b> &rarr; <b>Source</b>, select <span class="code-block">Deploy from a branch</span>.</li>
+                <li>Set Branch to <span class="code-block">main</span> / <span class="code-block">/(root)</span> and click <b>Save</b>.</li>
+                <li>Your mobile VR app will be live globally at <span class="code-block">https://yourusername.github.io/vr-camera-app/</span>.</li>
+            </ol>
+            <p style="font-size:11px; color:#888;">* Note: Webcams require HTTPS, which GitHub Pages provides automatically for free!</p>
+            <button class="close-btn" onclick="toggleInstructions()">Got it!</button>
         </div>
     </div>
 
     <script>
-        const videoSource = document.getElementById('webcam-source');
+        /* APP STATE */
+        let isUsingCamera = false;
+        let simAngle = 0;
+        let graphOffset = 0;
+
+        /* DOM ELEMENTS */
+        const masterVideo = document.getElementById('master-video');
+        const masterSimCanvas = document.getElementById('master-canvas-sim');
+        const simCtx = masterSimCanvas.getContext('2d');
+
         const leftEyeCanvas = document.getElementById('left-eye-canvas');
         const rightEyeCanvas = document.getElementById('right-eye-canvas');
-        const ctxLeft = leftEyeCanvas.getContext('2d');
-        const ctxRight = rightEyeCanvas.getContext('2d');
+        const leftEyeCtx = leftEyeCanvas.getContext('2d');
+        const rightEyeCtx = rightEyeCanvas.getContext('2d');
 
-        const graphLeftCanvas = document.getElementById('graph-left');
-        const graphRightCanvas = document.getElementById('graph-right');
-        const ctxGraphL = graphLeftCanvas.getContext('2d');
-        const ctxGraphR = graphRightCanvas.getContext('2d');
+        const leftHudCanvas = document.getElementById('left-hud-graph');
+        const rightHudCanvas = document.getElementById('right-hud-graph');
+        const leftHudCtx = leftHudCanvas.getContext('2d');
+        const rightHudCtx = rightHudCanvas.getContext('2d');
 
-        let isVRStarted = false;
-        let waveOffset = 0;
+        const statusBadge = document.getElementById('status-badge');
 
-        // Initialize and lock orientation
-        async function enterVRMode() {
-            document.getElementById('vr-overlay').style.display = 'none';
-            isVRStarted = true;
+        /* INITIALIZATION */
+        window.addEventListener('load', () => {
+            initEyeCanvases();
+            setupCameraFeed();
+            requestAnimationFrame(renderLoop);
+        });
 
-            // Request Fullscreen
-            if (document.documentElement.requestFullscreen) {
-                document.documentElement.requestFullscreen().catch(() => {});
-            }
+        window.addEventListener('resize', () => {
+            initEyeCanvases();
+        });
 
-            // Try Locking Screen Orientation to Landscape
-            if (screen.orientation && screen.orientation.lock) {
-                try {
-                    await screen.orientation.lock('landscape');
-                } catch (e) {
-                    console.log('Orientation lock not permitted, falling back to CSS force rotation.');
-                }
-            }
-
-            // Start Camera Stream
-            initCamera();
-            checkOrientation();
+        function initEyeCanvases() {
+            const dpr = window.devicePixelRatio || 1;
+            [leftEyeCanvas, rightEyeCanvas].forEach(c => {
+                c.width = c.clientWidth * dpr;
+                c.height = c.clientHeight * dpr;
+            });
+            [leftHudCanvas, rightHudCanvas].forEach(c => {
+                c.width = c.clientWidth * dpr;
+                c.height = c.clientHeight * dpr;
+            });
         }
 
-        // Camera Feed Initialization
-        async function initCamera() {
+        /* CAMERA INITIALIZATION & FALLBACK SIMULATION MODE */
+        async function setupCameraFeed() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: { ideal: 'environment' }, // Prefer back camera for VR passthrough
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    },
+                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
                     audio: false
                 });
-                videoSource.srcObject = stream;
-                videoSource.play();
-                requestAnimationFrame(renderLoop);
+                masterVideo.srcObject = stream;
+                await masterVideo.play();
+                isUsingCamera = true;
+                statusBadge.textContent = "Mode: Live Web Camera";
             } catch (err) {
-                console.warn('Environment camera failed, falling back to default camera:', err);
-                try {
-                    const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                    videoSource.srcObject = fallbackStream;
-                    videoSource.play();
-                    requestAnimationFrame(renderLoop);
-                } catch (e) {
-                    alert('Camera access denied or unavailable.');
+                console.warn("Camera denied or unavailable. Fallback to VR simulation mode.", err);
+                isUsingCamera = false;
+                statusBadge.textContent = "Mode: Fallback Simulation (Camera Inactive)";
+            }
+        }
+
+        /* FULLSCREEN & LANDSCAPE ORIENTATION LOCK */
+        async function requestVRMode() {
+            try {
+                if (document.documentElement.requestFullscreen) {
+                    await document.documentElement.requestFullscreen();
                 }
+                if (screen.orientation && screen.orientation.lock) {
+                    await screen.orientation.lock('landscape').catch(() => {});
+                }
+            } catch (e) {
+                console.log("Fullscreen/Orientation lock handled");
             }
         }
 
-        // Force Orientation Handling (CSS Fallback if system lock fails)
-        function checkOrientation() {
-            const stage = document.getElementById('vr-stage');
-            const isPortrait = window.innerHeight > window.innerWidth;
-
-            if (isPortrait) {
-                stage.classList.add('force-landscape');
-            } else {
-                stage.classList.remove('force-landscape');
-            }
+        function toggleInstructions() {
+            const modal = document.getElementById('github-instructions-modal');
+            modal.style.display = modal.style.display === 'none' ? 'flex' : 'none';
         }
 
-        window.addEventListener('resize', checkOrientation);
-        window.addEventListener('orientationchange', checkOrientation);
-
-        // Resize Canvases according to layout
-        function resizeCanvases() {
-            [leftEyeCanvas, rightEyeCanvas].forEach(c => {
-                c.width = c.clientWidth * (window.devicePixelRatio || 1);
-                c.height = c.clientHeight * (window.devicePixelRatio || 1);
-            });
-
-            [graphLeftCanvas, graphRightCanvas].forEach(g => {
-                g.width = g.clientWidth * (window.devicePixelRatio || 1);
-                g.height = g.clientHeight * (window.devicePixelRatio || 1);
-            });
-        }
-
-        // Render Loop for Video Duplication and Graph Animation
+        /* MAIN RENDER LOOP */
         function renderLoop() {
-            if (!isVRStarted) return;
-
-            resizeCanvases();
-
-            // 1. Draw Camera Feed to both Left & Right Eye Canvases
-            if (videoSource.readyState === videoSource.HAVE_ENOUGH_DATA) {
-                // Mirror/Draw Video
-                [ctxLeft, ctxRight].forEach(ctx => {
-                    const w = ctx.canvas.width;
-                    const h = ctx.canvas.height;
-                    ctx.save();
-                    ctx.clearRect(0, 0, w, h);
-                    ctx.drawImage(videoSource, 0, 0, w, h);
-                    ctx.restore();
-                });
-            }
-
-            // 2. Render Live Yellow Graph Plane Content
-            waveOffset += 0.08;
-            renderGraph(ctxGraphL);
-            renderGraph(ctxGraphR);
-
+            renderMasterFeed();
+            drawHUDGraphs();
             requestAnimationFrame(renderLoop);
         }
 
-        // Draw Translucent Yellow Cartesian Graph
-        function renderGraph(ctx) {
-            const w = ctx.canvas.width;
-            const h = ctx.canvas.height;
+        /* RENDER CAMERA OR SIMULATION TO DUAL EYES */
+        function renderMasterFeed() {
+            const lw = leftEyeCanvas.width;
+            const lh = leftEyeCanvas.height;
+            const rw = rightEyeCanvas.width;
+            const rh = rightEyeCanvas.height;
 
-            ctx.clearRect(0, 0, w, h);
-
-            // Grid Lines (Yellow translucent)
-            ctx.strokeStyle = 'rgba(255, 235, 59, 0.25)';
-            ctx.lineWidth = 1;
-
-            const cols = 6;
-            const rows = 6;
-            const stepX = w / cols;
-            const stepY = h / rows;
-
-            for (let i = 0; i <= cols; i++) {
-                ctx.beginPath();
-                ctx.moveTo(i * stepX, 0);
-                ctx.lineTo(i * stepX, h);
-                ctx.stroke();
-            }
-
-            for (let j = 0; j <= rows; j++) {
-                ctx.beginPath();
-                ctx.moveTo(0, j * stepY);
-                ctx.lineTo(w, j * stepY);
-                ctx.stroke();
-            }
-
-            // Main Axes
-            ctx.strokeStyle = 'rgba(255, 235, 59, 0.6)';
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            ctx.moveTo(0, h / 2);
-            ctx.lineTo(w, h / 2);
-            ctx.moveTo(w / 2, 0);
-            ctx.lineTo(w / 2, h);
-            ctx.stroke();
-
-            // Plot Waveform Line
-            ctx.strokeStyle = '#ffee55';
-            ctx.lineWidth = 2.5;
-            ctx.shadowColor = 'rgba(255, 235, 59, 0.8)';
-            ctx.shadowBlur = 6;
-
-            ctx.beginPath();
-            for (let x = 0; x < w; x += 2) {
-                const nx = (x / w) * 4 * Math.PI;
-                const y = h / 2 + Math.sin(nx + waveOffset) * (h * 0.22) + Math.cos((nx * 0.5) - waveOffset) * (h * 0.08);
-                if (x === 0) {
-                    ctx.moveTo(x, y);
-                } else {
-                    ctx.lineTo(x, y);
+            if (isUsingCamera && masterVideo.readyState === masterVideo.HAVE_ENOUGH_DATA) {
+                // Draw live video feed into both eye viewports
+                leftEyeCtx.drawImage(masterVideo, 0, 0, lw, lh);
+                rightEyeCtx.drawImage(masterVideo, 0, 0, rw, rh);
+            } else {
+                // Generate animated grid simulation for fallback test view
+                simAngle += 0.02;
+                simCtx.fillStyle = '#050a14';
+                simCtx.fillRect(0, 0, 640, 480);
+                
+                // Animated perspective grid in fallback
+                simCtx.strokeStyle = '#1e3a8a';
+                simCtx.lineWidth = 2;
+                for (let x = 0; x < 640; x += 40) {
+                    simCtx.beginPath();
+                    simCtx.moveTo(x, 0);
+                    simCtx.lineTo(x + Math.sin(simAngle) * 30, 480);
+                    simCtx.stroke();
                 }
+                for (let y = 0; y < 480; y += 40) {
+                    simCtx.beginPath();
+                    simCtx.moveTo(0, y);
+                    simCtx.lineTo(640, y + Math.cos(simAngle) * 20);
+                    simCtx.stroke();
+                }
+
+                leftEyeCtx.drawImage(masterSimCanvas, 0, 0, lw, lh);
+                rightEyeCtx.drawImage(masterSimCanvas, 0, 0, rw, rh);
             }
-            ctx.stroke();
-            ctx.shadowBlur = 0; // Reset
+        }
+
+        /* DRAW TRANSLUCENT YELLOW HUD CARTESIAN GRAPH OVERLAY */
+        function drawHUDGraphs() {
+            graphOffset += 0.05;
+
+            [ {ctx: leftHudCtx, canvas: leftHudCanvas}, {ctx: rightHudCtx, canvas: rightHudCanvas} ].forEach(({ctx, canvas}) => {
+                const w = canvas.width;
+                const h = canvas.height;
+
+                ctx.clearRect(0, 0, w, h);
+
+                // Grid lines (Translucent Yellow)
+                ctx.strokeStyle = 'rgba(255, 230, 0, 0.25)';
+                ctx.lineWidth = 1;
+
+                const cols = 6;
+                const rows = 6;
+                const stepX = w / cols;
+                const stepY = h / rows;
+
+                for (let i = 0; i <= cols; i++) {
+                    ctx.beginPath();
+                    ctx.moveTo(i * stepX, 0);
+                    ctx.lineTo(i * stepX, h);
+                    ctx.stroke();
+                }
+
+                for (let j = 0; j <= rows; j++) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, j * stepY);
+                    ctx.lineTo(w, j * stepY);
+                    ctx.stroke();
+                }
+
+                // Plotting Wave Lines (Yellow HUD styling)
+                ctx.strokeStyle = '#ffe600';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+
+                for (let x = 0; x < w; x += 3) {
+                    const y = (h / 2) + Math.sin(x * 0.05 + graphOffset) * (h * 0.25) + Math.cos(x * 0.02 - graphOffset) * 10;
+                    if (x === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+
+                // Target crosshair mark on HUD
+                const cx = w * 0.6;
+                const cy = (h / 2) + Math.sin(cx * 0.05 + graphOffset) * (h * 0.25);
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.strokeStyle = '#ffe600';
+                ctx.beginPath();
+                ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+                ctx.stroke();
+            });
         }
     </script>
 </body>
